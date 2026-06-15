@@ -1,0 +1,204 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sidebar-width: 280px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #45475a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}
+
+/* CodeMirror customization */
+.cm-editor {
+  height: 100% !important;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.cm-editor .cm-content {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+.cm-editor .cm-gutters {
+  background: transparent !important;
+  border-right: none !important;
+}
+
+.cm-editor.cm-focused {
+  outline: none !important;
+}
+
+/* Markdown preview styles */
+.markdown-preview {
+  line-height: 1.8;
+  font-size: 15px;
+}
+
+.markdown-preview h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin: 1em 0 0.5em;
+  color: #cba6f7;
+  border-bottom: 1px solid #45475a;
+  padding-bottom: 0.3em;
+}
+
+.markdown-preview h2 {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  color: #89b4fa;
+}
+
+.markdown-preview h3 {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+  color: #a6e3a1;
+}
+
+.markdown-preview p {
+  margin: 0.5em 0;
+}
+
+.markdown-preview a {
+  color: #89b4fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-preview a:hover {
+  color: #b4befe;
+}
+
+.markdown-preview code {
+  background: #313244;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.markdown-preview pre {
+  background: #181825;
+  padding: 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdown-preview blockquote {
+  border-left: 3px solid #cba6f7;
+  padding-left: 1em;
+  margin: 1em 0;
+  color: #a6adc8;
+}
+
+.markdown-preview ul, .markdown-preview ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+.markdown-preview li {
+  margin: 0.25em 0;
+}
+
+.markdown-preview table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.markdown-preview th, .markdown-preview td {
+  border: 1px solid #45475a;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.markdown-preview th {
+  background: #313244;
+  font-weight: 600;
+}
+
+.markdown-preview img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.markdown-preview hr {
+  border: none;
+  border-top: 1px solid #45475a;
+  margin: 1.5em 0;
+}
+
+/* Wiki link highlight */
+.wiki-link {
+  color: #cba6f7;
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dashed #cba6f7;
+}
+
+.wiki-link:hover {
+  color: #f5c2e7;
+  border-bottom-style: solid;
+}
+
+/* Sidebar tree animation */
+.folder-item {
+  transition: background-color 0.15s ease;
+}
+
+.folder-item:hover {
+  background-color: #313244;
+}
+
+.folder-item.active {
+  background-color: #45475a;
+}
+
+/* Graph view */
+.react-flow__node {
+  font-size: 12px;
+}

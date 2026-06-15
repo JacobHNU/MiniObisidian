@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-action/refs/heads/main/examples/vanilla/src-tauri/gen/schemas/config.schema.json",
+  "productName": "MiniObsidian",
+  "version": "0.1.0",
+  "identifier": "com.miniobsidian.app",
+  "build": {
+    "frontendDist": "../src-web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MiniObsidian",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "maximized": true,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

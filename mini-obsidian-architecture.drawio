@@ -1,0 +1,105 @@
+<mxGraphModel adaptiveColors="auto" dx="1422" dy="820" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="legend1" value="表示层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1;shadow=0;arcSize=30;" vertex="1" parent="1">
+      <mxGeometry x="20" y="15" width="55" height="22" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend2" value="业务逻辑层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontStyle=1;shadow=0;arcSize=30;" vertex="1" parent="1">
+      <mxGeometry x="85" y="15" width="75" height="22" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend3" value="数据持久层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;shadow=0;arcSize=30;" vertex="1" parent="1">
+      <mxGeometry x="170" y="15" width="75" height="22" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend4" value="外部集成层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=1;shadow=0;arcSize=30;" vertex="1" parent="1">
+      <mxGeometry x="255" y="15" width="75" height="22" as="geometry"/>
+    </mxCell>
+    <mxCell id="L1" value="表示层  (React 18 + Tauri WebView)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=8;shadow=1;arcSize=5;" vertex="1" parent="1">
+      <mxGeometry x="20" y="55" width="1260" height="140" as="geometry"/>
+    </mxCell>
+    <mxCell id="E" value="CodeMirror&amp;#xa;编辑器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=12;shadow=1;arcSize=15;" vertex="1" parent="1">
+      <mxGeometry x="45" y="98" width="200" height="72" as="geometry"/>
+    </mxCell>
+    <mxCell id="F" value="文件浏览器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=12;shadow=1;arcSize=15;" vertex="1" parent="1">
+      <mxGeometry x="269" y="98" width="200" height="72" as="geometry"/>
+    </mxCell>
+    <mxCell id="G" value="搜索面板&amp;#xa;(Tantivy)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=12;shadow=1;arcSize=15;" vertex="1" parent="1">
+      <mxGeometry x="493" y="98" width="200" height="72" as="geometry"/>
+    </mxCell>
+    <mxCell id="H" value="AI 问答面板" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=12;shadow=1;arcSize=15;" vertex="1" parent="1">
+      <mxGeometry x="717" y="98" width="200" height="72" as="geometry"/>
+    </mxCell>
+    <mxCell id="I" value="知识图谱&amp;#xa;(reactflow)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=12;shadow=1;arcSize=15;" vertex="1" parent="1">
+      <mxGeometry x="941" y="98" width="200" height="72" as="geometry"/>
+    </mxCell>
+    <mxCell id="L2" value="业务逻辑层  (Rust Core)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=8;shadow=1;arcSize=5;" vertex="1" parent="1">
+      <mxGeometry x="20" y="245" width="1260" height="180" as="geometry"/>
+    </mxCell>
+    <mxCell id="J" value="NoteService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="45" y="293" width="370" height="105" as="geometry"/>
+    </mxCell>
+    <mxCell id="Jsub" value="笔记 CRUD  ·  标签管理  ·  双向链接  ·  Frontmatter 解析" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="60" y="358" width="340" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="K" value="SyncEngine" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="465" y="293" width="370" height="105" as="geometry"/>
+    </mxCell>
+    <mxCell id="Ksub" value="文件监听  ·  增量传输  ·  冲突解决  ·  离线队列" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="480" y="358" width="340" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="M" value="AIAnalyzer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="885" y="293" width="370" height="105" as="geometry"/>
+    </mxCell>
+    <mxCell id="Msub" value="多模型适配器  ·  摘要生成  ·  关键词提取  ·  语义问答" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="900" y="358" width="340" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="L3" value="数据持久层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=8;shadow=1;arcSize=5;" vertex="1" parent="1">
+      <mxGeometry x="20" y="475" width="1260" height="155" as="geometry"/>
+    </mxCell>
+    <mxCell id="N" value="文件系统" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="45" y="523" width="580" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="Nsub" value=".md 笔记文件  ·  attachments/ 附件目录  ·  .vault/ 系统配置" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#9673a6;" vertex="1" parent="1">
+      <mxGeometry x="95" y="563" width="480" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="O" value="SQLite 数据库" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="695" y="523" width="560" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="Osub" value="notes_meta 元数据  ·  links 链接  ·  sync_state 同步状态  ·  ai_metadata AI 缓存" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#9673a6;" vertex="1" parent="1">
+      <mxGeometry x="710" y="563" width="530" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="L4" value="外部集成层" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;verticalAlign=top;spacingTop=8;shadow=1;arcSize=5;" vertex="1" parent="1">
+      <mxGeometry x="20" y="680" width="1260" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="P" value="百度网盘 Open API" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#d6b656;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="45" y="728" width="580" height="85" as="geometry"/>
+    </mxCell>
+    <mxCell id="Psub" value="OAuth 2.0 认证  ·  增量上传/下载  ·  分片传输  ·  冲突检测" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="95" y="773" width="480" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="Q" value="AI Model Adapters" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#d6b656;fontSize=13;fontStyle=1;shadow=1;arcSize=10;" vertex="1" parent="1">
+      <mxGeometry x="695" y="728" width="560" height="85" as="geometry"/>
+    </mxCell>
+    <mxCell id="Qsub" value="OpenAI GPT  ·  文心一言  ·  通义千问  ·  Ollama 本地模型" style="text;html=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontSize=10;fontColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="710" y="773" width="530" height="30" as="geometry"/>
+    </mxCell>
+    <mxCell id="A1" value="Tauri IPC Bridge (invoke)" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4A90D9;fontSize=10;fontColor=#4A90D9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="L1" target="L2">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="A2" value="Rust 直接调用" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#9673a6;fontSize=10;fontColor=#9673a6;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="L2" target="L3">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="A3" value="HTTP / REST API" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#d6b656;fontSize=10;fontColor=#d6b656;dashed=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="L3" target="L4">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="A4" value="笔记编辑/保存" style="endArrow=block;endFill=1;html=1;strokeWidth=1.5;strokeColor=#82b366;dashed=1;fontSize=9;fontColor=#82b366;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="E" target="J">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="A5" value="触发同步" style="endArrow=block;endFill=1;html=1;strokeWidth=1.5;strokeColor=#6c8ebf;dashed=1;fontSize=9;fontColor=#6c8ebf;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="K" target="P">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+    <mxCell id="A6" value="AI 请求" style="endArrow=block;endFill=1;html=1;strokeWidth=1.5;strokeColor=#d6b656;dashed=1;fontSize=9;fontColor=#d6b656;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="M" target="Q">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+  </root>
+</mxGraphModel>

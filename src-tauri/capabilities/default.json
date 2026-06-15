@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Default capability for MiniObsidian",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-mkdir",
+    "fs:allow-rename",
+    "fs:allow-exists"
+  ]
+}
