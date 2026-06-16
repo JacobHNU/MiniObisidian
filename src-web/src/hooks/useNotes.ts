@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import * as api from '../ipc/tauri'
 
-export function useNotes() {
+export function useNotes(vaultReady: boolean = true) {
   const [notes, setNotes] = useState<api.NoteMeta[]>([])
   const [folders, setFolders] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refreshNotes = useCallback(async () => {
+    if (!vaultReady) return
     try {
       setLoading(true)
       const result = await api.listNotes()
@@ -18,21 +19,25 @@ export function useNotes() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [vaultReady])
 
   const refreshFolders = useCallback(async () => {
+    if (!vaultReady) return
     try {
       const result = await api.listFolders()
       setFolders(result)
     } catch (e) {
       console.error('Failed to load folders:', e)
     }
-  }, [])
+  }, [vaultReady])
 
+  // Only load notes/folders when vault is ready
   useEffect(() => {
-    refreshNotes()
-    refreshFolders()
-  }, [refreshNotes, refreshFolders])
+    if (vaultReady) {
+      refreshNotes()
+      refreshFolders()
+    }
+  }, [vaultReady, refreshNotes, refreshFolders])
 
   const createNote = useCallback(
     async (title: string, body: string, folder?: string, tags?: string[]) => {

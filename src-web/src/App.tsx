@@ -19,6 +19,7 @@ export default function App() {
   // Track the latest content to avoid stale closures in auto-save
   const contentRef = useRef<string>('')
   const noteIdRef = useRef<string | null>(null)
+  const notePathRef = useRef<string | null>(null)
 
   const {
     notes,
@@ -29,7 +30,7 @@ export default function App() {
     deleteNote,
     refreshNotes,
     refreshFolders,
-  } = useNotes()
+  } = useNotes(vaultReady)
 
   // Keep refs in sync
   useEffect(() => { contentRef.current = currentContent }, [currentContent])
@@ -41,9 +42,11 @@ export default function App() {
     if (savedPath) {
       api
         .initVault(savedPath)
-        .then(() => setVaultReady(true))
+        .then(() => {
+          setVaultReady(true)
+        })
         .catch((e) => {
-          console.error('Failed to init vault:', e)
+          console.error('Failed to init vault from saved path:', e)
           localStorage.removeItem('vault_path')
         })
     }
@@ -58,6 +61,29 @@ export default function App() {
       console.error('Failed to initialize vault:', e)
       throw e
     }
+  }, [])
+
+  // Switch to a different vault
+  const handleSwitchVault = useCallback(() => {
+    // Cancel any pending auto-save
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    // Save current note if any
+    const prevId = noteIdRef.current
+    const prevContent = contentRef.current
+    if (prevId && prevContent) {
+      api.updateNote(prevId, prevContent).catch(() => {})
+    }
+    // Reset all state
+    setCurrentNoteId(null)
+    setCurrentContent('')
+    contentRef.current = ''
+    noteIdRef.current = null
+    notePathRef.current = null
+    setVaultReady(false)
+    localStorage.removeItem('vault_path')
   }, [])
 
   const handleSelectNote = useCallback(
@@ -80,21 +106,37 @@ export default function App() {
       }
 
       setCurrentNoteId(noteId)
-      try {
-        const note = notes.find((n) => n.id === noteId)
-        if (!note) {
-          // Note might not exist in current list, try refreshing
-          await refreshNotes()
-          return
+      noteIdRef.current = noteId
+
+      // Look up note path — try current list first, then re-fetch from backend
+      let notePath: string | undefined = notes.find((n) => n.id === noteId)?.path
+      if (!notePath) {
+        try {
+          const freshNotes = await api.listNotes()
+          notePath = freshNotes.find((n) => n.id === noteId)?.path
+        } catch {
+          // ignore
         }
-        const content = await api.readNoteByPath(note.path)
+      }
+
+      if (!notePath) {
+        console.error('Note not found:', noteId)
+        setCurrentContent('')
+        return
+      }
+
+      notePathRef.current = notePath
+
+      try {
+        const content = await api.readNoteByPath(notePath)
         setCurrentContent(content)
+        contentRef.current = content
       } catch (e) {
         console.error('Failed to read note:', e)
         setCurrentContent('')
       }
     },
-    [notes, refreshNotes]
+    [notes]
   )
 
   const handleContentChange = useCallback(
@@ -216,7 +258,7 @@ export default function App() {
   const currentNote = notes.find((n) => n.id === currentNoteId)
 
   return (
-    <div className="flex h-screen bg-[#1e1e2e]">
+    <div className="flex h-screen w-screen overflow-hidden bg-[#1e1e2e]">
       {/* Sidebar */}
       {sidebarOpen && (
         <Sidebar
@@ -231,13 +273,14 @@ export default function App() {
           onDeleteNote={handleDeleteNote}
           onRenameNote={handleRenameNote}
           onClose={() => setSidebarOpen(false)}
+          onSwitchVault={handleSwitchVault}
         />
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 w-0 bg-[#1e1e2e]">
+      <div className="flex-1 min-w-0 flex flex-col bg-[#1e1e2e] overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-[#181825] border-b border-[#313244] w-full">
+        <div className="flex items-center gap-2 px-4 py-2 bg-[#181825] border-b border-[#313244] shrink-0">
           {!sidebarOpen && (
             <button
               onClick={() => setSidebarOpen(true)}
@@ -249,10 +292,10 @@ export default function App() {
               </svg>
             </button>
           )}
-          <div className="flex-1 text-sm text-[#a6adc8] truncate">
+          <div className="flex-1 text-sm text-[#a6adc8] truncate min-w-0">
             {currentNote?.title || 'No note selected'}
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 shrink-0">
             {(['edit', 'split', 'preview', 'graph', 'search'] as ViewMode[]).map(
               (mode) => (
                 <button
@@ -280,18 +323,14 @@ export default function App() {
         </div>
 
         {/* Content area */}
-        <div className="flex-1 overflow-hidden w-full">
+        <div className="flex-1 min-h-0 overflow-hidden">
           {viewMode === 'search' ? (
             <SearchPanel onSelectNote={handleSelectNote} />
           ) : viewMode === 'graph' ? (
             <GraphView
               onSelectNote={(nodeId) => {
-                // Find the note by id in our notes list
-                const note = notes.find(n => n.id === nodeId)
-                if (note) {
-                  handleSelectNote(note.id)
-                  setViewMode('split')
-                }
+                handleSelectNote(nodeId)
+                setViewMode('split')
               }}
               notes={notes}
             />

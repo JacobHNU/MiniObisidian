@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import type { NoteMeta } from '../../ipc/tauri'
+import type { NoteMeta, FileInfo } from '../../ipc/tauri'
 import * as api from '../../ipc/tauri'
 
 interface SidebarProps {
@@ -14,6 +14,7 @@ interface SidebarProps {
   onDeleteNote: (noteId: string) => void
   onRenameNote: (noteId: string, newTitle: string) => void
   onClose: () => void
+  onSwitchVault: () => void
 }
 
 interface FolderNode {
@@ -21,6 +22,7 @@ interface FolderNode {
   path: string
   children: FolderNode[]
   notes: NoteMeta[]
+  files?: FileInfo[] // Non-note files (e.g., images in attachments/)
 }
 
 interface ContextMenuState {
@@ -44,6 +46,7 @@ export default function Sidebar({
   onDeleteNote,
   onRenameNote,
   onClose,
+  onSwitchVault,
 }: SidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['inbox', 'daily']))
   const [filter, setFilter] = useState('')
@@ -303,7 +306,20 @@ export default function Sidebar({
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-[#313244] text-xs text-[#6c7086]">{notes.length} notes</div>
+      <div className="px-3 py-2 border-t border-[#313244] flex items-center justify-between">
+        <span className="text-xs text-[#6c7086]">{notes.length} notes</span>
+        <button
+          onClick={onSwitchVault}
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[#a6adc8] hover:bg-[#313244] hover:text-[#cba6f7] transition-colors"
+          title="Switch Vault"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+            <path d="M12 11v6M9 14l3 3 3-3" />
+          </svg>
+          Switch Vault
+        </button>
+      </div>
 
       {/* Context Menu */}
       {contextMenu && (
@@ -375,6 +391,26 @@ interface FolderTreeProps {
 function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onCreateNoteInFolder, onFolderContextMenu,
   creatingSubFolder, subFolderName, onSubFolderNameChange, onConfirmSubFolder, onCancelSubFolder, renderNoteItem }: FolderTreeProps) {
   const isExpanded = expanded.has(node.path)
+  const [files, setFiles] = useState<FileInfo[]>(node.files || [])
+  const [loading, setLoading] = useState(false)
+
+  // Load files when expanding a folder (especially for attachments/)
+  useEffect(() => {
+    console.log('[Sidebar] FolderTree effect triggered:', { isExpanded, path: node.path, hasFiles: !!node.files })
+    if (isExpanded && node.path && !node.files) {
+      console.log('[Sidebar] Loading files for folder:', node.path)
+      setLoading(true)
+      api.listFiles(node.path).then((fileList) => {
+        console.log('[Sidebar] Files loaded:', fileList.length, 'files', fileList)
+        setFiles(fileList)
+        setLoading(false)
+      }).catch((err) => {
+        console.error('[Sidebar] Failed to load files:', err)
+        setLoading(false)
+      })
+    }
+  }, [isExpanded, node.path, node.files])
+
   return (
     <div>
       {node.path && (
@@ -403,6 +439,20 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onCreateNo
                 className="flex-1 bg-transparent text-sm text-[#cdd6f4] outline-none placeholder-[#6c7086]" />
             </div>
           )}
+          {/* Show files in this folder (for attachments/) */}
+          {loading && (
+            <div className="px-2 py-1 text-xs text-[#6c7086]" style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
+              Loading...
+            </div>
+          )}
+          {files.map((file) => (
+            <div key={file.path} className="flex items-center gap-1.5 px-2 py-1 rounded text-sm text-[#a6adc8]"
+              style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#89b4fa" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+              <span className="truncate">{file.name}</span>
+              <span className="text-xs text-[#6c7086] ml-auto">{(file.size / 1024).toFixed(1)} KB</span>
+            </div>
+          ))}
           {node.children.map((child) => (
             <FolderTree key={child.path} node={child} expanded={expanded} currentNoteId={currentNoteId}
               depth={node.path ? depth + 1 : depth} onToggle={onToggle} onSelectNote={() => {}} onDeleteNote={() => {}}

@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod commands;
 
 use std::sync::Mutex;
@@ -39,6 +41,7 @@ fn main() {
             commands::create_daily_note,
             commands::show_in_folder,
             commands::save_attachment,
+            commands::read_attachment,
         ])
         .setup(|_app| {
             tracing::info!("MiniObsidian starting up");

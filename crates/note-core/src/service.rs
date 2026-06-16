@@ -329,7 +329,8 @@ impl NoteService {
             for entry in fs::read_dir(&dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.is_file() && path.extension().map(|e| e == "md").unwrap_or(false) {
+                // Include all files (not just .md), especially images in attachments/
+                if path.is_file() {
                     let name = entry.file_name().to_string_lossy().to_string();
                     let relative_path = if folder.is_empty() {
                         name.clone()

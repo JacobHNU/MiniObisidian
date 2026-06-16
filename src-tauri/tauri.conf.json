@@ -12,14 +12,15 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "MiniObsidian",
         "width": 1400,
         "height": 900,
-        "resizable": true,
-        "fullscreen": false,
-        "maximized": true,
         "minWidth": 800,
-        "minHeight": 600
+        "minHeight": 600,
+        "resizable": true,
+        "maximized": true,
+        "url": "index.html"
       }
     ],
     "security": {

@@ -254,53 +254,65 @@ pub fn save_attachment(
     filename: String,
     data_base64: String,
 ) -> Result<String, String> {
+    use base64::Engine;
+
     let guard = state.note_service.lock().unwrap();
     let svc = guard.as_ref().ok_or("Vault not initialized")?;
 
     let attachments_dir = svc.vault_path().join("attachments");
     std::fs::create_dir_all(&attachments_dir).map_err(|e| e.to_string())?;
 
-    let bytes = base64_decode(&data_base64).map_err(|e| format!("Base64 decode failed: {}", e))?;
+    // Strip data URI prefix if present (e.g., "data:image/png;base64,")
+    let b64 = match data_base64.find(',') {
+        Some(pos) => &data_base64[pos + 1..],
+        None => &data_base64,
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+
     let file_path = attachments_dir.join(&filename);
     std::fs::write(&file_path, &bytes).map_err(|e| e.to_string())?;
 
+    tracing::info!("Saved attachment: {} ({} bytes)", file_path.display(), bytes.len());
+
+    // Return the relative path (short string, no issues with IPC)
     Ok(format!("attachments/{}", filename))
 }
 
-/// Simple base64 decoder
-fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
-    // Strip data URI prefix if present (e.g., "data:image/png;base64,")
-    let b64 = match input.find(',') {
-        Some(pos) => &input[pos + 1..],
-        None => input,
-    };
+/// Read an attachment file and return it as a base64 data URI
+/// This is used by the frontend to display images in the preview
+#[tauri::command]
+pub fn read_attachment(
+    state: State<'_, AppState>,
+    relative_path: String,
+) -> Result<String, String> {
+    use base64::Engine;
 
-    let mut result = Vec::new();
-    let mut buf: u32 = 0;
-    let mut bits: u32 = 0;
+    let guard = state.note_service.lock().unwrap();
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
 
-    for &b in b64.as_bytes() {
-        if b == b'=' || b == b'\n' || b == b'\r' || b == b' ' {
-            continue;
-        }
-        let val = match b {
-            b'A'..=b'Z' => (b - b'A') as u32,
-            b'a'..=b'z' => (b - b'a' + 26) as u32,
-            b'0'..=b'9' => (b - b'0' + 52) as u32,
-            b'+' => 62,
-            b'/' => 63,
-            _ => continue,
-        };
-        buf = (buf << 6) | val;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            result.push((buf >> bits) as u8);
-            buf &= (1 << bits) - 1;
-        }
+    let file_path = svc.vault_path().join(&relative_path);
+    if !file_path.exists() {
+        return Err(format!("Attachment not found: {}", relative_path));
     }
 
-    Ok(result)
+    let bytes = std::fs::read(&file_path).map_err(|e| e.to_string())?;
+
+    // Determine MIME type from extension
+    let mime = match file_path.extension().and_then(|e| e.to_str()) {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
+    };
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

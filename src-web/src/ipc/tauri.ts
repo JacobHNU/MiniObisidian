@@ -98,6 +98,10 @@ export const createDailyNote = () =>
 export const showInFolder = (notePath: string) =>
   invoke<void>('show_in_folder', { notePath })
 
-// Save base64 image to vault attachments
+// Save base64 image to vault attachments, returns relative path
 export const saveAttachment = (filename: string, dataBase64: string) =>
   invoke<string>('save_attachment', { filename, dataBase64 })
+
+// Read an attachment file and return it as a base64 data URI
+export const readAttachment = (relativePath: string) =>
+  invoke<string>('read_attachment', { relativePath })
