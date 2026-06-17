@@ -322,3 +322,143 @@ pub struct NoteContent {
     pub tags: Vec<String>,
     pub raw: String,
 }
+
+/// AI chat request from frontend
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatRequest {
+    pub question: String,
+    pub note_content: String,
+    pub note_title: String,
+    pub api_key: String,
+    pub api_url: String,
+    pub model: String,
+    pub history: Vec<ChatMessage>,
+    pub context_notes: Option<Vec<ContextNote>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContextNote {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+}
+
+/// Send a chat request to an OpenAI-compatible API with note context
+#[tauri::command]
+pub async fn ai_chat(request: AiChatRequest) -> Result<String, String> {
+    // Build system prompt with multi-note context
+    let mut context_sections = String::new();
+
+    if let Some(ref notes) = request.context_notes {
+        if notes.len() > 1 {
+            // Multi-note mode
+            context_sections.push_str("The user has the following notes open. ");
+            context_sections.push_str("Answer questions based on ALL the note content below. ");
+            context_sections.push_str("When referencing information, mention which note it comes from.\n\n");
+            for note in notes {
+                context_sections.push_str(&format!(
+                    "=== NOTE: {} ===\n{}\n=== END NOTE ===\n\n",
+                    note.title, note.content
+                ));
+            }
+        } else if let Some(note) = notes.first() {
+            // Single note mode
+            context_sections.push_str(&format!(
+                "The user is currently viewing a note titled \"{}\". \
+                 Answer questions based on the note content below.\n\n\
+                 --- NOTE CONTENT ---\n{}\n--- END NOTE ---",
+                note.title, note.content
+            ));
+        }
+    } else {
+        // Fallback to current note
+        context_sections.push_str(&format!(
+            "The user is currently viewing a note titled \"{}\". \
+             Answer questions based on the note content below.\n\n\
+             --- NOTE CONTENT ---\n{}\n--- END NOTE ---",
+            request.note_title, request.note_content
+        ));
+    }
+
+    let system_prompt = format!(
+        "You are a helpful AI assistant embedded in a note-taking app. \
+         If the question is not related to the notes, you may still help but mention that \
+         the answer is not based on the current notes. \
+         Respond in the same language as the user's question.\n\n{}",
+        context_sections
+    );
+
+    // Build messages array
+    let mut messages = Vec::new();
+    messages.push(serde_json::json!({
+        "role": "system",
+        "content": system_prompt
+    }));
+
+    // Add conversation history
+    for msg in &request.history {
+        messages.push(serde_json::json!({
+            "role": msg.role,
+            "content": msg.content
+        }));
+    }
+
+    // Add current question
+    messages.push(serde_json::json!({
+        "role": "user",
+        "content": request.question
+    }));
+
+    // Build request body
+    let body = serde_json::json!({
+        "model": request.model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 2048
+    });
+
+    // Build API URL
+    let url = format!("{}/chat/completions", request.api_url.trim_end_matches('/'));
+
+    tracing::info!("AI chat request: model={}, url={}", request.model, url);
+
+    // Send request
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", request.api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(60))
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let error_text = resp.text().await.unwrap_or_default();
+        tracing::error!("AI API error {}: {}", status, error_text);
+        return Err(format!("API error ({}): {}", status, error_text));
+    }
+
+    let resp_json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    // Extract the assistant's reply
+    let answer = resp_json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("No response from AI")
+        .to_string();
+
+    tracing::info!("AI chat response: {} chars", answer.len());
+    Ok(answer)
+}

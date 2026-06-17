@@ -105,3 +105,29 @@ export const saveAttachment = (filename: string, dataBase64: string) =>
 // Read an attachment file and return it as a base64 data URI
 export const readAttachment = (relativePath: string) =>
   invoke<string>('read_attachment', { relativePath })
+
+// AI Chat
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ContextNote {
+  id: string
+  title: string
+  content: string
+}
+
+export interface AiChatRequest {
+  question: string
+  noteContent: string
+  noteTitle: string
+  apiKey: string
+  apiUrl: string
+  model: string
+  history: ChatMessage[]
+  contextNotes?: ContextNote[]
+}
+
+export const aiChat = (request: AiChatRequest) =>
+  invoke<string>('ai_chat', { request })

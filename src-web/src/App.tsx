@@ -4,22 +4,28 @@ import EditorPanel from './components/Editor/EditorPanel'
 import SearchPanel from './components/Search/SearchPanel'
 import GraphView from './components/Graph/GraphView'
 import VaultSetup from './components/VaultSetup'
+import AIPanel from './components/AI/AIPanel'
+import TabBar, { Tab } from './components/TabBar/TabBar'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
 
 type ViewMode = 'edit' | 'preview' | 'split' | 'graph' | 'search'
 
+interface TabState {
+  content: string
+  filePath: string
+}
+
 export default function App() {
   const [vaultReady, setVaultReady] = useState(false)
-  const [currentNoteId, setCurrentNoteId] = useState<string | null>(null)
-  const [currentContent, setCurrentContent] = useState<string>('')
+  const [tabs, setTabs] = useState<Tab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [tabContents, setTabContents] = useState<Record<string, TabState>>({})
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Track the latest content to avoid stale closures in auto-save
-  const contentRef = useRef<string>('')
-  const noteIdRef = useRef<string | null>(null)
-  const notePathRef = useRef<string | null>(null)
+  const tabContentsRef = useRef<Record<string, TabState>>({})
 
   const {
     notes,
@@ -32,9 +38,8 @@ export default function App() {
     refreshFolders,
   } = useNotes(vaultReady)
 
-  // Keep refs in sync
-  useEffect(() => { contentRef.current = currentContent }, [currentContent])
-  useEffect(() => { noteIdRef.current = currentNoteId }, [currentNoteId])
+  // Keep ref in sync
+  useEffect(() => { tabContentsRef.current = tabContents }, [tabContents])
 
   // Check for existing vault on mount
   useEffect(() => {
@@ -42,9 +47,7 @@ export default function App() {
     if (savedPath) {
       api
         .initVault(savedPath)
-        .then(() => {
-          setVaultReady(true)
-        })
+        .then(() => setVaultReady(true))
         .catch((e) => {
           console.error('Failed to init vault from saved path:', e)
           localStorage.removeItem('vault_path')
@@ -63,104 +66,162 @@ export default function App() {
     }
   }, [])
 
-  // Switch to a different vault
   const handleSwitchVault = useCallback(() => {
-    // Cancel any pending auto-save
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    // Save current note if any
-    const prevId = noteIdRef.current
-    const prevContent = contentRef.current
-    if (prevId && prevContent) {
-      api.updateNote(prevId, prevContent).catch(() => {})
+    // Save all open tabs
+    const contents = tabContentsRef.current
+    for (const [tabId, state] of Object.entries(contents)) {
+      if (state.content) {
+        api.updateNote(tabId, state.content).catch(() => {})
+      }
     }
-    // Reset all state
-    setCurrentNoteId(null)
-    setCurrentContent('')
-    contentRef.current = ''
-    noteIdRef.current = null
-    notePathRef.current = null
+    setTabs([])
+    setActiveTabId(null)
+    setTabContents({})
     setVaultReady(false)
     localStorage.removeItem('vault_path')
   }, [])
 
+  // Save a specific tab's content to backend
+  const saveTab = useCallback(async (tabId: string) => {
+    const state = tabContentsRef.current[tabId]
+    if (state?.content) {
+      try {
+        await api.updateNote(tabId, state.content)
+      } catch (e) {
+        console.error('Failed to save tab:', e)
+      }
+    }
+  }, [])
+
+  // Open a note in a tab (create new tab or switch to existing)
   const handleSelectNote = useCallback(
     async (noteId: string) => {
-      // Cancel any pending auto-save first
+      // Cancel pending auto-save
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
       }
 
-      // Save current note before switching — use refs to get latest values
-      const prevId = noteIdRef.current
-      const prevContent = contentRef.current
-      if (prevId && prevId !== noteId && prevContent) {
-        try {
-          await api.updateNote(prevId, prevContent)
-        } catch (e) {
-          console.error('Failed to save previous note:', e)
-        }
+      // Save current active tab before switching
+      if (activeTabId && activeTabId !== noteId) {
+        await saveTab(activeTabId)
       }
 
-      setCurrentNoteId(noteId)
-      noteIdRef.current = noteId
+      // Check if tab already exists
+      const existingTab = tabs.find(t => t.id === noteId)
+      if (existingTab) {
+        setActiveTabId(noteId)
+        return
+      }
 
-      // Look up note path — try current list first, then re-fetch from backend
+      // Find note info
       let notePath: string | undefined = notes.find((n) => n.id === noteId)?.path
+      let noteTitle: string | undefined = notes.find((n) => n.id === noteId)?.title
       if (!notePath) {
         try {
           const freshNotes = await api.listNotes()
-          notePath = freshNotes.find((n) => n.id === noteId)?.path
-        } catch {
-          // ignore
-        }
+          const found = freshNotes.find((n) => n.id === noteId)
+          notePath = found?.path
+          noteTitle = found?.title
+        } catch { /* ignore */ }
       }
 
       if (!notePath) {
         console.error('Note not found:', noteId)
-        setCurrentContent('')
         return
       }
 
-      notePathRef.current = notePath
-
+      // Load content
+      let content = ''
       try {
-        const content = await api.readNoteByPath(notePath)
-        setCurrentContent(content)
-        contentRef.current = content
+        content = await api.readNoteByPath(notePath)
       } catch (e) {
         console.error('Failed to read note:', e)
-        setCurrentContent('')
       }
+
+      // Add new tab
+      const newTab: Tab = {
+        id: noteId,
+        title: noteTitle || 'Untitled',
+        filePath: notePath,
+      }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(noteId)
+      setTabContents(prev => ({
+        ...prev,
+        [noteId]: { content, filePath: notePath! },
+      }))
     },
-    [notes]
+    [activeTabId, tabs, notes, saveTab]
   )
 
+  // Close a tab
+  const handleTabClose = useCallback(async (tabId: string) => {
+    // Save before closing
+    await saveTab(tabId)
+
+    setTabs(prev => {
+      const newTabs = prev.filter(t => t.id !== tabId)
+      // If closing active tab, switch to adjacent
+      if (tabId === activeTabId) {
+        const closedIdx = prev.findIndex(t => t.id === tabId)
+        const newActive = newTabs[Math.min(closedIdx, newTabs.length - 1)] || null
+        setActiveTabId(newActive?.id || null)
+      }
+      return newTabs
+    })
+    setTabContents(prev => {
+      const next = { ...prev }
+      delete next[tabId]
+      return next
+    })
+  }, [activeTabId, saveTab])
+
+  // Switch active tab
+  const handleTabClick = useCallback(async (tabId: string) => {
+    if (tabId === activeTabId) return
+
+    // Cancel pending auto-save
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+
+    // Save current tab
+    if (activeTabId) {
+      await saveTab(activeTabId)
+    }
+
+    setActiveTabId(tabId)
+  }, [activeTabId, saveTab])
+
+  // Content change handler for active tab
   const handleContentChange = useCallback(
     (content: string) => {
-      setCurrentContent(content)
-      contentRef.current = content
+      if (!activeTabId) return
+
+      setTabContents(prev => ({
+        ...prev,
+        [activeTabId]: { ...prev[activeTabId], content },
+      }))
 
       // Auto-save with debounce
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
-      const noteId = noteIdRef.current
-      if (noteId) {
-        saveTimerRef.current = setTimeout(async () => {
-          try {
-            // Use ref to get latest content at save time
-            await api.updateNote(noteId, contentRef.current)
-          } catch (e) {
-            console.error('Auto-save failed:', e)
-          }
-        }, 1000)
-      }
+      saveTimerRef.current = setTimeout(async () => {
+        try {
+          await api.updateNote(activeTabId, content)
+        } catch (e) {
+          console.error('Auto-save failed:', e)
+        }
+      }, 1000)
     },
-    []
+    [activeTabId]
   )
 
   const handleCreateNote = useCallback(async () => {
@@ -171,12 +232,16 @@ export default function App() {
       const noteTitle = `Note-${today}-${timeStr}`
       const body = `[[${today}]]\n\n`
       const note = await createNote(noteTitle, body, 'inbox', [])
-      // Set content before setting ID to avoid race with auto-save
       const fullContent = `---\nid: "${note.id}"\ntitle: "${noteTitle}"\ntags: []\ncreated: "${now.toISOString()}"\nupdated: "${now.toISOString()}"\nlinks: ["${today}"]\n---\n\n${body}`
-      setCurrentContent(fullContent)
-      contentRef.current = fullContent
-      setCurrentNoteId(note.id)
-      noteIdRef.current = note.id
+
+      // Open in new tab
+      const newTab: Tab = { id: note.id, title: noteTitle, filePath: '' }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(note.id)
+      setTabContents(prev => ({
+        ...prev,
+        [note.id]: { content: fullContent, filePath: '' },
+      }))
     } catch (e) {
       console.error('Failed to create note:', e)
       alert('Failed to create note: ' + String(e))
@@ -192,10 +257,14 @@ export default function App() {
       const body = `[[${today}]]\n\n`
       const note = await createNote(noteTitle, body, folder, [])
       const fullContent = `---\nid: "${note.id}"\ntitle: "${noteTitle}"\ntags: []\ncreated: "${now.toISOString()}"\nupdated: "${now.toISOString()}"\nlinks: ["${today}"]\n---\n\n${body}`
-      setCurrentContent(fullContent)
-      contentRef.current = fullContent
-      setCurrentNoteId(note.id)
-      noteIdRef.current = note.id
+
+      const newTab: Tab = { id: note.id, title: noteTitle, filePath: '' }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(note.id)
+      setTabContents(prev => ({
+        ...prev,
+        [note.id]: { content: fullContent, filePath: '' },
+      }))
     } catch (e) {
       console.error('Failed to create note:', e)
       alert('Failed to create note: ' + String(e))
@@ -215,11 +284,15 @@ export default function App() {
     try {
       const note = await api.createDailyNote()
       await refreshNotes()
-      setCurrentNoteId(note.id)
-      noteIdRef.current = note.id
       const content = await api.readNoteByPath(note.path)
-      setCurrentContent(content)
-      contentRef.current = content
+
+      const newTab: Tab = { id: note.id, title: note.title, filePath: note.path }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(note.id)
+      setTabContents(prev => ({
+        ...prev,
+        [note.id]: { content, filePath: note.path },
+      }))
     } catch (e) {
       console.error('Failed to create daily note:', e)
     }
@@ -229,6 +302,8 @@ export default function App() {
     try {
       await api.renameNote(noteId, newTitle)
       await refreshNotes()
+      // Update tab title
+      setTabs(prev => prev.map(t => t.id === noteId ? { ...t, title: newTitle } : t))
     } catch (e) {
       console.error('Failed to rename note:', e)
     }
@@ -238,24 +313,48 @@ export default function App() {
     async (noteId: string) => {
       try {
         await deleteNote(noteId)
-        if (currentNoteId === noteId) {
-          setCurrentNoteId(null)
-          setCurrentContent('')
-          contentRef.current = ''
-          noteIdRef.current = null
+        // Close tab if open
+        if (tabs.find(t => t.id === noteId)) {
+          await handleTabClose(noteId)
         }
       } catch (e) {
         console.error('Failed to delete note:', e)
       }
     },
-    [currentNoteId, deleteNote]
+    [deleteNote, tabs, handleTabClose]
   )
+
+  const handleMoveNote = useCallback(async (noteId: string, destPath: string) => {
+    try {
+      await api.moveNote(noteId, destPath)
+      await refreshNotes()
+      await refreshFolders()
+    } catch (e) {
+      console.error('Failed to move note:', e)
+    }
+  }, [refreshNotes, refreshFolders])
+
+  const handleWikiLinkClick = useCallback(async (noteTitle: string) => {
+    const existingNote = notes.find((n) => n.title === noteTitle)
+    if (existingNote) {
+      await handleSelectNote(existingNote.id)
+    } else {
+      try {
+        const newNote = await createNote(noteTitle, '', '', [])
+        await refreshNotes()
+        await handleSelectNote(newNote.id)
+      } catch (e) {
+        console.error('Failed to create note from wiki link:', e)
+      }
+    }
+  }, [notes, handleSelectNote, createNote, refreshNotes])
 
   if (!vaultReady) {
     return <VaultSetup onInit={handleInitVault} />
   }
 
-  const currentNote = notes.find((n) => n.id === currentNoteId)
+  const currentContent = activeTabId ? (tabContents[activeTabId]?.content || '') : ''
+  const currentNote = notes.find((n) => n.id === activeTabId)
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#1e1e2e]">
@@ -264,7 +363,7 @@ export default function App() {
         <Sidebar
           notes={notes}
           folders={folders}
-          currentNoteId={currentNoteId}
+          currentNoteId={activeTabId}
           onSelectNote={handleSelectNote}
           onCreateNote={handleCreateNote}
           onCreateNoteInFolder={handleCreateNoteInFolder}
@@ -295,7 +394,7 @@ export default function App() {
           <div className="flex-1 text-sm text-[#a6adc8] truncate min-w-0">
             {currentNote?.title || 'No note selected'}
           </div>
-          <div className="flex gap-1 shrink-0">
+          <div className="flex gap-1 shrink-0 items-center">
             {(['edit', 'split', 'preview', 'graph', 'search'] as ViewMode[]).map(
               (mode) => (
                 <button
@@ -319,8 +418,32 @@ export default function App() {
                 </button>
               )
             )}
+            <div className="w-px h-4 bg-[#45475a] mx-1" />
+            <button
+              onClick={() => setAiPanelOpen(!aiPanelOpen)}
+              className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                aiPanelOpen
+                  ? 'bg-[#cba6f7] text-[#1e1e2e]'
+                  : 'text-[#a6adc8] hover:bg-[#313244]'
+              }`}
+              title="AI Assistant"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 2a7 7 0 017 7v1a7 7 0 01-14 0V9a7 7 0 017-7z" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+              AI
+            </button>
           </div>
         </div>
+
+        {/* Tab bar */}
+        <TabBar
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onTabClick={handleTabClick}
+          onTabClose={handleTabClose}
+        />
 
         {/* Content area */}
         <div className="flex-1 min-h-0 overflow-hidden">
@@ -334,7 +457,7 @@ export default function App() {
               }}
               notes={notes}
             />
-          ) : currentNoteId ? (
+          ) : activeTabId ? (
             <EditorPanel
               content={currentContent}
               onChange={handleContentChange}
@@ -351,6 +474,20 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* AI Panel */}
+      <AIPanel
+        isOpen={aiPanelOpen}
+        onClose={() => setAiPanelOpen(false)}
+        currentNoteContent={currentContent}
+        currentNoteTitle={currentNote?.title || ''}
+        openNotes={tabs.map(tab => ({
+          id: tab.id,
+          title: tab.title,
+          content: tabContents[tab.id]?.content || '',
+          isActive: tab.id === activeTabId,
+        }))}
+      />
     </div>
   )
 }

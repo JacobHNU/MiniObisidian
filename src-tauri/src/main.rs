@@ -42,6 +42,7 @@ fn main() {
             commands::show_in_folder,
             commands::save_attachment,
             commands::read_attachment,
+            commands::ai_chat,
         ])
         .setup(|_app| {
             tracing::info!("MiniObsidian starting up");
