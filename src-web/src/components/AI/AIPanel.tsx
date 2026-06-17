@@ -45,6 +45,9 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [contextOpen, setContextOpen] = useState(false)
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set())
+  const [optimizing, setOptimizing] = useState(false)
+  const [showOptimizedResult, setShowOptimizedResult] = useState(false)
+  const [optimizedResult, setOptimizedResult] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -85,9 +88,22 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   // Focus input when panel opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
-      inputRef.current.focus()
+      inputRef.current.focus();
+      // 初始化时调整高度
+      const el = inputRef.current;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
     }
-  }, [isOpen])
+  }, [isOpen]);
+
+  // 当输入内容变化时调整高度
+  useEffect(() => {
+    if (inputRef.current) {
+      const el = inputRef.current;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+    }
+  }, [input]);
 
   // Drag to resize
   useEffect(() => {
@@ -307,6 +323,63 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   const clearChat = () => {
     setMessages([])
     setError(null)
+  }
+
+  const handleOptimizePrompt = useCallback(async () => {
+    const rawPrompt = input.trim()
+    if (!rawPrompt) return
+
+    if (!apiKey) {
+      setError('请先配置 API Key')
+      setConfigOpen(true)
+      return
+    }
+
+    setOptimizing(true)
+    setShowOptimizedResult(false)
+    setError(null)
+
+    try {
+      const optimizationPrompt = `请优化以下用户提示词，使其更清晰、逻辑更完整：
+
+【原始提示词】
+${rawPrompt}
+
+【优化要求】
+1. 梳理内容逻辑，使结构更清晰
+2. 修正表达歧义
+3. 补充必要的背景说明
+4. 以结构化的分点形式输出优化结果
+5. 优化后的提示词应能让大模型更精准理解需求
+
+请直接输出优化后的提示词，分点清晰展示，每点前用数字标号。`
+
+      const answer = await api.aiChat({
+        question: optimizationPrompt,
+        noteContent: '',
+        noteTitle: '',
+        apiKey,
+        apiUrl,
+        model,
+        history: [],
+        contextNotes: [],
+      })
+
+      setOptimizedResult(answer)
+      setShowOptimizedResult(true)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setOptimizing(false)
+    }
+  }, [input, apiKey, apiUrl, model])
+
+  const useOptimizedPrompt = () => {
+    setInput(optimizedResult)
+    setShowOptimizedResult(false)
+    if (inputRef.current) {
+      inputRef.current.focus()
+    }
   }
 
   // Context summary
@@ -550,28 +623,95 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Optimized result */}
+      {showOptimizedResult && (
+        <div className="px-3 py-2 border-t border-[#313244] bg-[#181825]">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-[#cba6f7]">✨ 优化后的提示词</span>
+            <div className="flex gap-1">
+              <button
+                onClick={useOptimizedPrompt}
+                className="px-2 py-1 text-xs bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors"
+              >
+                使用此提示词
+              </button>
+              <button
+                onClick={() => setShowOptimizedResult(false)}
+                className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a] transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="ai-markdown-content text-sm bg-[#313244] rounded-lg px-3 py-2">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                pre: ({ children, ...props }) => (
+                  <pre className="bg-[#181825] rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
+                ),
+                code: ({ className, children, ...props }) => {
+                  const isInline = !className
+                  if (isInline) return <code className="bg-[#45475a] px-1 py-0.5 rounded text-[#f9e2af] text-xs" {...props}>{children}</code>
+                  return <code className={className} {...props}>{children}</code>
+                },
+                p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
+                ul: ({ children, ...props }) => <ul className="list-disc pl-4 mb-2" {...props}>{children}</ul>,
+                ol: ({ children, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props}>{children}</ol>,
+                li: ({ children, ...props }) => <li className="mb-0.5" {...props}>{children}</li>,
+              }}
+            >
+              {optimizedResult}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="px-3 py-2 border-t border-[#313244]">
         <div className="flex gap-2">
           <textarea
             ref={inputRef}
             value={input}
-            onChange={e => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // 实时调整高度
+              const el = e.target;
+              el.style.height = 'auto';
+              el.style.height = `${Math.min(el.scrollHeight, 360)}px`; // 假设24px行高，15行=360px
+            }}
             onKeyDown={handleKeyDown}
             placeholder="Ask about your notes..."
-            rows={2}
-            className="flex-1 px-3 py-2 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7]"
-            disabled={loading}
+            className="flex-1 px-3 py-2 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
+            style={{
+              height: 'auto',
+              maxHeight: '360px', // 15行，约24px行高
+            }}
+            disabled={loading || optimizing}
           />
-          <button
-            onClick={handleSend}
-            disabled={loading || !input.trim()}
-            className="self-end px-3 py-2 bg-[#cba6f7] text-[#1e1e2e] rounded-lg hover:bg-[#b4befe] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-            </svg>
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={handleOptimizePrompt}
+              disabled={loading || optimizing || !input.trim()}
+              className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a] hover:text-[#f9e2af] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              title="优化提示词"
+            >
+              {optimizing ? (
+                <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>优化中</>
+              ) : (
+                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>优化</>
+              )}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={loading || optimizing || !input.trim()}
+              className="self-end px-3 py-1.5 bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="text-[10px] text-[#6c7086] mt-1">
           Enter to send, Shift+Enter for new line

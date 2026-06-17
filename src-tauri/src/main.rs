@@ -34,6 +34,7 @@ fn main() {
             commands::list_folders,
             commands::list_files,
             commands::create_folder,
+            commands::delete_folder,
             commands::rename_note,
             commands::move_note,
             commands::scan_vault,
@@ -43,6 +44,9 @@ fn main() {
             commands::save_attachment,
             commands::read_attachment,
             commands::ai_chat,
+            commands::configure_sync,
+            commands::run_sync,
+            commands::get_sync_changes,
         ])
         .setup(|_app| {
             tracing::info!("MiniObsidian starting up");

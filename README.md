@@ -47,14 +47,14 @@
 - **附件管理**：支持图片粘贴自动保存到 `attachments/` 目录
 - **Frontmatter**：每篇笔记包含 YAML 元数据（ID、标题、标签、创建/更新时间、链接）
 
-### Phase 2：百度网盘同步（规划中）
+### Phase 2：云同步（已实现）
 
-- 百度网盘 OAuth 2.0 授权流程
-- 文件级增量同步（上传/下载），基于 SHA-256 哈希比对
-- 分片上传（>4MB 文件），支持断点续传
-- 冲突检测与自动/手动解决（diff3 合并算法）
-- 离线操作队列，网络恢复后自动同步
-- API 限流与指数退避重试
+- **同步引擎架构**：SyncEngine + SyncAdapter 抽象层，支持扩展多种云端后端
+- **增量同步**：基于 SHA-256 哈希比对的变更检测，仅传输变化文件
+- **冲突解决**：支持 KeepNewer / KeepLocal / KeepRemote / KeepBoth 四种策略，冲突文件自动备份
+- **本地文件夹适配器**：同步到本地云盘目录（如百度网盘本地同步文件夹），作为云端适配器参考实现
+- **变更预览**：同步前可扫描并预览待变更文件列表（Added / Modified / Deleted）
+- **同步 UI**：独立同步面板，显示上传/下载/删除/冲突统计，支持一键同步
 
 ### Phase 3：AI 智能理解（已实现）
 
@@ -93,7 +93,7 @@
 mini-obsidian/
 ├── src-tauri/                  # Tauri 应用入口
 │   ├── src/main.rs             # 应用启动、窗口配置
-│   ├── src/commands.rs         # IPC 命令（笔记 CRUD、图谱、附件、AI 聊天）
+│   ├── src/commands.rs         # IPC 命令（笔记 CRUD、图谱、附件、AI 聊天、云同步）
 │   ├── tauri.conf.json         # Tauri 配置（窗口、权限）
 │   └── capabilities/           # 权限声明
 ├── crates/
@@ -101,9 +101,12 @@ mini-obsidian/
 │   │   ├── src/service.rs      # NoteService（笔记 CRUD、扫描、图谱）
 │   │   ├── src/parser.rs       # YAML Frontmatter 解析与序列化
 │   │   └── src/link.rs         # 双向链接提取（[[wiki-link]]）
-│   └── storage/                # 数据持久层
-│       ├── src/lib.rs          # SQLite 数据库操作封装
-│       └── src/schema.rs       # 表结构定义与迁移
+│   ├── storage/                # 数据持久层
+│   │   ├── src/lib.rs          # SQLite 数据库操作封装
+│   │   └── src/schema.rs       # 表结构定义与迁移
+│   └── sync-engine/            # 同步引擎
+│       ├── src/lib.rs          # SyncEngine、ChangeDetector、ConflictResolver
+│       └── src/local_adapter.rs # 本地文件夹同步适配器
 ├── src-web/                    # React 前端
 │   ├── src/App.tsx             # 主应用（多标签页状态管理、自动保存）
 │   ├── src/components/
@@ -111,11 +114,12 @@ mini-obsidian/
 │   │   ├── Sidebar/Sidebar.tsx       # 文件浏览器（树形结构、右键菜单）
 │   │   ├── TabBar/TabBar.tsx         # 多标签页栏
 │   │   ├── AI/AIPanel.tsx            # AI 问答面板（多笔记上下文、Markdown 渲染）
+│   │   ├── Sync/SyncPanel.tsx        # 云同步面板（变更预览、一键同步）
 │   │   ├── Search/SearchPanel.tsx    # 搜索面板
 │   │   ├── Graph/GraphView.tsx       # 知识图谱（力导向 SVG）
 │   │   └── VaultSetup.tsx            # 首次启动 Vault 选择
 │   ├── src/hooks/useNotes.ts         # 笔记状态管理 Hook
-│   └── src/ipc/tauri.ts              # Tauri IPC 封装（含 AI 聊天）
+│   └── src/ipc/tauri.ts              # Tauri IPC 封装（含 AI 聊天、云同步）
 ├── Cargo.toml                  # Rust workspace 配置
 ├── package.json                # Node.js 依赖
 ├── knowledge-manager-architecture.md  # 完整架构设计文档
@@ -165,7 +169,8 @@ npx tauri build
 8. **日记**：点击日历图标创建/打开今日日记
 9. **搜索**：点击搜索按钮，按标题、标签或路径检索
 10. **图片粘贴**：在编辑器中直接粘贴剪贴板图片，自动保存到 attachments/
-11. **切换 Vault**：点击侧边栏底部按钮切换笔记库
+11. **云同步**：点击工具栏 "Sync" 按钮，配置同步目录后可扫描变更并一键同步
+12. **切换 Vault**：点击侧边栏底部按钮切换笔记库
 
 ## 数据存储
 

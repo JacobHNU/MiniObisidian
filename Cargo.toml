@@ -4,6 +4,7 @@ members = [
     "src-tauri",
     "crates/note-core",
     "crates/storage",
+    "crates/sync-engine",
 ]
 
 [workspace.dependencies]

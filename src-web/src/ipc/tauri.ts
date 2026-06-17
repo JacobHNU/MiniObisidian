@@ -75,6 +75,9 @@ export const listFiles = (folder: string) =>
 export const createFolder = (folderPath: string) =>
   invoke<void>('create_folder', { folderPath })
 
+export const deleteFolder = (folderPath: string) =>
+  invoke<void>('delete_folder', { folderPath })
+
 // Note operations
 export const renameNote = (noteId: string, newTitle: string) =>
   invoke<NoteMeta>('rename_note', { noteId, newTitle })
@@ -91,8 +94,8 @@ export const getGraphData = () =>
   invoke<GraphData>('get_graph_data')
 
 // Daily note
-export const createDailyNote = () =>
-  invoke<NoteMeta>('create_daily_note')
+export const createDailyNote = (date?: string) =>
+  invoke<NoteMeta>('create_daily_note', { date: date || null })
 
 // Show file in system file explorer
 export const showInFolder = (notePath: string) =>
@@ -131,3 +134,47 @@ export interface AiChatRequest {
 
 export const aiChat = (request: AiChatRequest) =>
   invoke<string>('ai_chat', { request })
+
+// Sync
+export interface SyncStatus {
+  isSyncing: boolean
+  lastSync: string | null
+  lastResult: SyncResult | null
+  pendingChanges: number
+  syncDir: string | null
+}
+
+export interface SyncResult {
+  totalChanges: number
+  uploaded: number
+  downloaded: number
+  deleted: number
+  conflicts: number
+  errors: { relativePath: string; message: string }[]
+  startedAt: string
+  completedAt: string
+}
+
+export interface FileChange {
+  relativePath: string
+  changeType: 'Added' | 'Modified' | 'Deleted'
+  localMeta: FileMeta | null
+  remoteMeta: FileMeta | null
+}
+
+export interface FileMeta {
+  relativePath: string
+  sha256: string
+  size: number
+  modified: string
+  lastSynced: string | null
+}
+
+export const configureSync = (syncTarget: string) =>
+  invoke<SyncStatus>('configure_sync', { syncTarget })
+
+export const runSync = (syncTarget: string) =>
+  invoke<SyncResult>('run_sync', { syncTarget })
+
+export const getSyncChanges = (syncTarget: string) =>
+  invoke<FileChange[]>('get_sync_changes', { syncTarget })

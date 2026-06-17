@@ -5,6 +5,7 @@ import SearchPanel from './components/Search/SearchPanel'
 import GraphView from './components/Graph/GraphView'
 import VaultSetup from './components/VaultSetup'
 import AIPanel from './components/AI/AIPanel'
+import SyncPanel from './components/Sync/SyncPanel'
 import TabBar, { Tab } from './components/TabBar/TabBar'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
@@ -24,8 +25,23 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tabContentsRef = useRef<Record<string, TabState>>({})
+
+  // Block default browser right-click menu
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      // Don't block if it's our custom menu trigger (marked with data-custom-context-menu)
+      if ((e.target as HTMLElement).closest('[data-custom-context-menu]')) {
+        return
+      }
+      e.preventDefault()
+    }
+
+    document.addEventListener('contextmenu', handleContextMenu)
+    return () => document.removeEventListener('contextmenu', handleContextMenu)
+  }, [])
 
   const {
     notes,
@@ -280,11 +296,23 @@ export default function App() {
     }
   }, [refreshFolders])
 
-  const handleCreateDailyNote = useCallback(async () => {
+  const handleCreateDailyNote = useCallback(async (date?: string) => {
     try {
-      const note = await api.createDailyNote()
+      const note = await api.createDailyNote(date)
       await refreshNotes()
       const content = await api.readNoteByPath(note.path)
+
+      // Check if tab already exists (conflict handling)
+      const existingTab = tabs.find(t => t.id === note.id)
+      if (existingTab) {
+        setActiveTabId(note.id)
+        // Refresh content in case it was updated
+        setTabContents(prev => ({
+          ...prev,
+          [note.id]: { content, filePath: note.path },
+        }))
+        return
+      }
 
       const newTab: Tab = { id: note.id, title: note.title, filePath: note.path }
       setTabs(prev => [...prev, newTab])
@@ -296,7 +324,7 @@ export default function App() {
     } catch (e) {
       console.error('Failed to create daily note:', e)
     }
-  }, [refreshNotes])
+  }, [refreshNotes, tabs])
 
   const handleRenameNote = useCallback(async (noteId: string, newTitle: string) => {
     try {
@@ -420,6 +448,16 @@ export default function App() {
             )}
             <div className="w-px h-4 bg-[#45475a] mx-1" />
             <button
+              onClick={() => setSyncPanelOpen(true)}
+              className="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 text-[#a6adc8] hover:bg-[#313244]"
+              title="Cloud Sync"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9" />
+              </svg>
+              Sync
+            </button>
+            <button
               onClick={() => setAiPanelOpen(!aiPanelOpen)}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
                 aiPanelOpen
@@ -487,6 +525,12 @@ export default function App() {
           content: tabContents[tab.id]?.content || '',
           isActive: tab.id === activeTabId,
         }))}
+      />
+
+      {/* Sync Panel */}
+      <SyncPanel
+        isOpen={syncPanelOpen}
+        onClose={() => setSyncPanelOpen(false)}
       />
     </div>
   )

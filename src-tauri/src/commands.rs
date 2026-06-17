@@ -3,6 +3,7 @@ use note_core::{service::FileInfo, service::GraphData, NoteService};
 use serde::{Deserialize, Serialize};
 use storage::schema::NoteMeta;
 use storage::Database;
+use sync_engine::SyncAdapter;
 use tauri::State;
 use std::path::PathBuf;
 
@@ -160,6 +161,17 @@ pub fn create_folder(
     svc.create_folder(&folder_path).map_err(|e| e.to_string())
 }
 
+/// Delete a folder
+#[tauri::command]
+pub fn delete_folder(
+    state: State<'_, AppState>,
+    folder_path: String,
+) -> Result<(), String> {
+    let guard = state.note_service.lock().unwrap();
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.delete_folder(&folder_path).map_err(|e| e.to_string())
+}
+
 /// Rename a note
 #[tauri::command]
 pub fn rename_note(
@@ -209,10 +221,11 @@ pub fn get_graph_data(
 #[tauri::command]
 pub fn create_daily_note(
     state: State<'_, AppState>,
+    date: Option<String>,
 ) -> Result<NoteMeta, String> {
     let guard = state.note_service.lock().unwrap();
     let svc = guard.as_ref().ok_or("Vault not initialized")?;
-    svc.create_daily_note().map_err(|e| e.to_string())
+    svc.create_daily_note_for_date(date.as_deref()).map_err(|e| e.to_string())
 }
 
 /// Open file explorer showing the given note file or folder
@@ -224,24 +237,81 @@ pub fn show_in_folder(
     let guard = state.note_service.lock().unwrap();
     let svc = guard.as_ref().ok_or("Vault not initialized")?;
     let clean_path = note_path.trim_end_matches('/');
-    let abs_path = svc.vault_path().join(clean_path);
+    let vault_path = svc.vault_path();
+    let abs_path = vault_path.join(clean_path);
 
-    if abs_path.is_dir() {
-        // Open the directory itself
-        #[cfg(target_os = "windows")]
-        { std::process::Command::new("explorer").arg(&abs_path).spawn().map_err(|e| e.to_string())?; }
-        #[cfg(target_os = "macos")]
-        { std::process::Command::new("open").arg(&abs_path).spawn().map_err(|e| e.to_string())?; }
-        #[cfg(target_os = "linux")]
-        { std::process::Command::new("xdg-open").arg(&abs_path).spawn().map_err(|e| e.to_string())?; }
+    // Log the paths for debugging
+    tracing::info!("=== show_in_folder DEBUG ===");
+    tracing::info!("Input note_path: {}", note_path);
+    tracing::info!("Clean path: {}", clean_path);
+    tracing::info!("Vault path: {}", vault_path.display());
+    tracing::info!("Absolute path: {}", abs_path.display());
+    tracing::info!("Vault path exists: {}", vault_path.exists());
+    tracing::info!("Absolute path exists: {}", abs_path.exists());
+    tracing::info!("Absolute path is_dir: {}", abs_path.is_dir());
+
+    // Find the correct target path
+    let target_path = if abs_path.is_dir() {
+        // Directory exists - open it
+        tracing::info!("Target: Directory exists, opening it");
+        abs_path.clone()
+    } else if abs_path.exists() {
+        // File exists - get its parent
+        tracing::info!("Target: File exists, opening parent");
+        abs_path.parent().unwrap_or(&abs_path).to_path_buf()
     } else {
-        // Select the file in its parent directory
-        #[cfg(target_os = "windows")]
-        { std::process::Command::new("explorer").args(["/select,", &abs_path.to_string_lossy()]).spawn().map_err(|e| e.to_string())?; }
-        #[cfg(target_os = "macos")]
-        { std::process::Command::new("open").args(["-R", &abs_path.to_string_lossy()]).spawn().map_err(|e| e.to_string())?; }
-        #[cfg(target_os = "linux")]
-        { std::process::Command::new("xdg-open").arg(abs_path.parent().unwrap_or(&abs_path)).spawn().map_err(|e| e.to_string())?; }
+        // Path doesn't exist - find closest existing parent
+        tracing::info!("Target: Path doesn't exist, finding closest parent");
+        let mut current = abs_path.clone();
+        let mut found = false;
+        
+        while let Some(parent) = current.parent() {
+            tracing::info!("Checking parent: {}", parent.display());
+            if parent.exists() && parent.is_dir() {
+                tracing::info!("Found existing parent: {}", parent.display());
+                found = true;
+                break;
+            }
+            current = parent.to_path_buf();
+        }
+        
+        if found {
+            current
+        } else {
+            tracing::info!("No existing parent found, using vault root: {}", vault_path.display());
+            vault_path.to_path_buf()
+        }
+    };
+
+    tracing::info!("Final target path: {}", target_path.display());
+
+    // Open in file explorer
+    #[cfg(target_os = "windows")]
+    {
+        let path_str = target_path.to_string_lossy().to_string();
+        tracing::info!("Opening explorer at: {}", path_str);
+        
+        // Use explorer with the path directly
+        std::process::Command::new("explorer")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| format!("Failed to open explorer: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&target_path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&target_path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -461,4 +531,90 @@ pub async fn ai_chat(request: AiChatRequest) -> Result<String, String> {
 
     tracing::info!("AI chat response: {} chars", answer.len());
     Ok(answer)
+}
+
+// ──────────────────────────────────────────────
+// Sync Commands
+// ──────────────────────────────────────────────
+
+/// Configure sync target directory
+#[tauri::command]
+pub async fn configure_sync(
+    state: State<'_, AppState>,
+    sync_target: String,
+) -> Result<sync_engine::SyncStatus, String> {
+    let vault_path = {
+        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
+        service.vault_path().to_path_buf()
+    };
+
+    let target = PathBuf::from(&sync_target);
+    if !target.exists() {
+        std::fs::create_dir_all(&target).map_err(|e| format!("Failed to create sync dir: {}", e))?;
+    }
+
+    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
+    let engine = sync_engine::SyncEngine::new(
+        vault_path,
+        Box::new(adapter),
+        sync_engine::ConflictStrategy::KeepNewer,
+    );
+
+    let status = engine.status();
+    Ok(status)
+}
+
+/// Run sync operation
+#[tauri::command]
+pub async fn run_sync(
+    state: State<'_, AppState>,
+    sync_target: String,
+) -> Result<sync_engine::SyncResult, String> {
+    let vault_path = {
+        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
+        service.vault_path().to_path_buf()
+    };
+
+    let target = PathBuf::from(&sync_target);
+    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
+    let mut engine = sync_engine::SyncEngine::new(
+        vault_path,
+        Box::new(adapter),
+        sync_engine::ConflictStrategy::KeepNewer,
+    );
+
+    engine.sync().await.map_err(|e| format!("Sync failed: {}", e))
+}
+
+/// Get sync status (dry run - just detect changes)
+#[tauri::command]
+pub async fn get_sync_changes(
+    state: State<'_, AppState>,
+    sync_target: String,
+) -> Result<Vec<sync_engine::FileChange>, String> {
+    let vault_path = {
+        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
+        service.vault_path().to_path_buf()
+    };
+
+    let target = PathBuf::from(&sync_target);
+    if !target.exists() {
+        return Ok(Vec::new());
+    }
+
+    let local_files = sync_engine::ChangeDetector::scan_local(&vault_path)
+        .map_err(|e| format!("Scan local failed: {}", e))?;
+
+    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
+    let remote_metas = adapter.list_remote_files().await
+        .map_err(|e| format!("List remote failed: {}", e))?;
+    let remote_files: std::collections::HashMap<String, sync_engine::FileMeta> = remote_metas
+        .into_iter()
+        .map(|m| (m.relative_path.clone(), m))
+        .collect();
+
+    Ok(sync_engine::ChangeDetector::detect_changes(&local_files, &remote_files))
 }

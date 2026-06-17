@@ -121,14 +121,30 @@ impl NoteService {
 
     /// Create or open today's daily note
     pub fn create_daily_note(&self) -> Result<NoteMeta> {
-        use chrono::Local;
+        self.create_daily_note_for_date(None)
+    }
 
-        let now = Local::now();
-        let year = now.format("%Y").to_string();
-        let month = now.format("%m").to_string();
-        let date_str = now.format("%Y-%m-%d").to_string();
-        let weekday_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-        let weekday = weekday_names[now.format("%w").to_string().parse::<usize>().unwrap_or(0)];
+    pub fn create_daily_note_for_date(&self, date: Option<&str>) -> Result<NoteMeta> {
+        use chrono::Local;
+        use chrono::NaiveDate;
+
+        let (date_str, weekday);
+        if let Some(date_input) = date {
+            // Parse user-provided date (YYYY-MM-DD)
+            let parsed = NaiveDate::parse_from_str(date_input, "%Y-%m-%d")
+                .map_err(|_| anyhow::anyhow!("Invalid date format: {}. Expected YYYY-MM-DD", date_input))?;
+            let weekday_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            weekday = weekday_names[parsed.format("%w").to_string().parse::<usize>().unwrap_or(0)].to_string();
+            date_str = parsed.format("%Y-%m-%d").to_string();
+        } else {
+            let now = Local::now();
+            let weekday_names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            weekday = weekday_names[now.format("%w").to_string().parse::<usize>().unwrap_or(0)].to_string();
+            date_str = now.format("%Y-%m-%d").to_string();
+        }
+
+        let year = &date_str[..4];
+        let month = &date_str[5..7];
 
         // Path: daily/YYYY/MM/YYYY-MM-DD.md
         let folder = format!("daily/{}/{}", year, month);
@@ -358,8 +374,34 @@ impl NoteService {
 
     /// Create a new folder in the vault
     pub fn create_folder(&self, folder_path: &str) -> Result<()> {
-        let abs_path = self.vault_path.join(folder_path);
+        let abs_path = self.vault_path().join(folder_path);
         fs::create_dir_all(&abs_path)?;
+        Ok(())
+    }
+
+    /// Delete a folder and all its contents
+    pub fn delete_folder(&self, folder_path: &str) -> Result<()> {
+        let abs_path = self.vault_path().join(folder_path);
+        
+        // First, delete all notes in this folder from the database
+        let all_notes = self.list_notes()?;
+        for note in all_notes {
+            if note.path.starts_with(folder_path) {
+                // Delete from database
+                self.db.delete_note(&note.id)?;
+                // Delete the file if it exists
+                let note_path = self.vault_path().join(&note.path);
+                if note_path.exists() {
+                    let _ = fs::remove_file(note_path);
+                }
+            }
+        }
+        
+        // Delete the folder itself
+        if abs_path.exists() && abs_path.is_dir() {
+            fs::remove_dir_all(&abs_path)?;
+        }
+        
         Ok(())
     }
 

@@ -1,0 +1,16 @@
+[package]
+name = "sync-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+tokio = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+async-trait = "0.1"

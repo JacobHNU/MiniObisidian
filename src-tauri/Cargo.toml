@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 note-core = { path = "../crates/note-core" }
 storage = { path = "../crates/storage" }
+sync-engine = { path = "../crates/sync-engine" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
