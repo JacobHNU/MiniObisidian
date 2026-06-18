@@ -240,35 +240,38 @@ pub fn show_in_folder(
     let vault_path = svc.vault_path();
     let abs_path = vault_path.join(clean_path);
 
-    // Log the paths for debugging
-    tracing::info!("=== show_in_folder DEBUG ===");
-    tracing::info!("Input note_path: {}", note_path);
-    tracing::info!("Clean path: {}", clean_path);
-    tracing::info!("Vault path: {}", vault_path.display());
-    tracing::info!("Absolute path: {}", abs_path.display());
-    tracing::info!("Vault path exists: {}", vault_path.exists());
-    tracing::info!("Absolute path exists: {}", abs_path.exists());
-    tracing::info!("Absolute path is_dir: {}", abs_path.is_dir());
+    // Create log file in current directory
+    let log_path = std::env::current_dir().unwrap_or_default().join("show_in_folder_debug.log");
+    let mut log_content = String::new();
+    log_content.push_str(&format!("=== show_in_folder DEBUG ===\n"));
+    log_content.push_str(&format!("Time: {}\n", chrono::Utc::now().to_rfc3339()));
+    log_content.push_str(&format!("Input note_path: {}\n", note_path));
+    log_content.push_str(&format!("Clean path: {}\n", clean_path));
+    log_content.push_str(&format!("Vault path: {}\n", vault_path.display()));
+    log_content.push_str(&format!("Absolute path: {}\n", abs_path.display()));
+    log_content.push_str(&format!("Vault path exists: {}\n", vault_path.exists()));
+    log_content.push_str(&format!("Absolute path exists: {}\n", abs_path.exists()));
+    log_content.push_str(&format!("Absolute path is_dir: {}\n", abs_path.is_dir()));
 
     // Find the correct target path
     let target_path = if abs_path.is_dir() {
         // Directory exists - open it
-        tracing::info!("Target: Directory exists, opening it");
+        log_content.push_str("Target: Directory exists, opening it\n");
         abs_path.clone()
     } else if abs_path.exists() {
         // File exists - get its parent
-        tracing::info!("Target: File exists, opening parent");
+        log_content.push_str("Target: File exists, opening parent\n");
         abs_path.parent().unwrap_or(&abs_path).to_path_buf()
     } else {
         // Path doesn't exist - find closest existing parent
-        tracing::info!("Target: Path doesn't exist, finding closest parent");
+        log_content.push_str("Target: Path doesn't exist, finding closest parent\n");
         let mut current = abs_path.clone();
         let mut found = false;
         
         while let Some(parent) = current.parent() {
-            tracing::info!("Checking parent: {}", parent.display());
+            log_content.push_str(&format!("Checking parent: {}\n", parent.display()));
             if parent.exists() && parent.is_dir() {
-                tracing::info!("Found existing parent: {}", parent.display());
+                log_content.push_str(&format!("Found existing parent: {}\n", parent.display()));
                 found = true;
                 break;
             }
@@ -278,20 +281,25 @@ pub fn show_in_folder(
         if found {
             current
         } else {
-            tracing::info!("No existing parent found, using vault root: {}", vault_path.display());
+            log_content.push_str(&format!("No existing parent found, using vault root: {}\n", vault_path.display()));
             vault_path.to_path_buf()
         }
     };
 
-    tracing::info!("Final target path: {}", target_path.display());
+    log_content.push_str(&format!("Final target path: {}\n", target_path.display()));
+
+    // Write log to file
+    let _ = std::fs::write(&log_path, &log_content);
+    tracing::info!("Log written to: {}", log_path.display());
 
     // Open in file explorer
     #[cfg(target_os = "windows")]
     {
-        let path_str = target_path.to_string_lossy().to_string();
-        tracing::info!("Opening explorer at: {}", path_str);
+        // Convert all forward slashes to backslashes for Windows
+        let path_str = target_path.to_string_lossy().to_string().replace('/', "\\");
+        log_content.push_str(&format!("Opening explorer at: {}\n", path_str));
         
-        // Use explorer with the path directly
+        // Use explorer with the normalized path
         std::process::Command::new("explorer")
             .arg(&path_str)
             .spawn()
@@ -313,6 +321,9 @@ pub fn show_in_folder(
             .spawn()
             .map_err(|e| e.to_string())?;
     }
+
+    // Update log with final action
+    let _ = std::fs::write(&log_path, &log_content);
 
     Ok(())
 }

@@ -89,10 +89,10 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
-      // 初始化时调整高度
+      // 初始化时调整高度（最小4行）
       const el = inputRef.current;
       el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+      el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`;
     }
   }, [isOpen]);
 
@@ -101,7 +101,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     if (inputRef.current) {
       const el = inputRef.current;
       el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 360)}px`;
+      el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`;
     }
   }, [input]);
 
@@ -678,14 +678,15 @@ ${rawPrompt}
               // 实时调整高度
               const el = e.target;
               el.style.height = 'auto';
-              el.style.height = `${Math.min(el.scrollHeight, 360)}px`; // 假设24px行高，15行=360px
+              el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`; // 最小4行(96px)，最大15行(360px)
             }}
             onKeyDown={handleKeyDown}
             placeholder="Ask about your notes..."
             className="flex-1 px-3 py-2 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
             style={{
-              height: 'auto',
-              maxHeight: '360px', // 15行，约24px行高
+              height: '96px', // 默认4行高度
+              minHeight: '96px', // 最小4行
+              maxHeight: '360px', // 最大15行
             }}
             disabled={loading || optimizing}
           />
