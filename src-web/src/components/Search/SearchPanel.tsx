@@ -7,7 +7,7 @@ interface SearchPanelProps {
 
 export default function SearchPanel({ onSelectNote }: SearchPanelProps) {
   const [query, setQuery] = useState('')
-  const [results, setResults] = useState<api.NoteMeta[]>([])
+  const [results, setResults] = useState<api.SearchResult[]>([])
   const [searching, setSearching] = useState(false)
 
   const handleSearch = useCallback(async () => {
@@ -18,17 +18,8 @@ export default function SearchPanel({ onSelectNote }: SearchPanelProps) {
 
     setSearching(true)
     try {
-      // For now, filter from the full note list
-      // Later this will use Tantivy search via IPC
-      const allNotes = await api.listNotes()
-      const q = query.toLowerCase()
-      const filtered = allNotes.filter(
-        (n) =>
-          n.title.toLowerCase().includes(q) ||
-          n.tags.some((t) => t.toLowerCase().includes(q)) ||
-          n.path.toLowerCase().includes(q)
-      )
-      setResults(filtered)
+      const searchResults = await api.searchNotes(query.trim(), 50)
+      setResults(searchResults)
     } catch (e) {
       console.error('Search failed:', e)
     } finally {
@@ -73,31 +64,24 @@ export default function SearchPanel({ onSelectNote }: SearchPanelProps) {
             </p>
           )}
 
-          {results.map((note) => (
+          {results.map((result) => (
             <div
-              key={note.id}
+              key={result.noteId}
               className="p-3 rounded-lg bg-[#313244] hover:bg-[#45475a] cursor-pointer transition-colors"
-              onClick={() => onSelectNote(note.id)}
+              onClick={() => onSelectNote(result.noteId)}
             >
               <div className="flex items-center justify-between">
                 <span className="font-medium text-[#cdd6f4]">
-                  {note.title}
+                  {result.title}
                 </span>
                 <span className="text-xs text-[#6c7086]">
-                  {new Date(note.updated_at).toLocaleDateString('zh-CN')}
+                  score: {result.score.toFixed(2)}
                 </span>
               </div>
-              <div className="text-sm text-[#a6adc8] mt-1">{note.path}</div>
-              {note.tags.length > 0 && (
-                <div className="flex gap-1 mt-2">
-                  {note.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="px-1.5 py-0.5 text-xs bg-[#1e1e2e] text-[#cba6f7] rounded"
-                    >
-                      #{tag}
-                    </span>
-                  ))}
+              <div className="text-sm text-[#a6adc8] mt-1">{result.path}</div>
+              {result.snippet && (
+                <div className="text-xs text-[#6c7086] mt-1.5 line-clamp-2">
+                  {result.snippet}
                 </div>
               )}
             </div>

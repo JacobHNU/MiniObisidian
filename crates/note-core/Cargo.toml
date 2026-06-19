@@ -15,3 +15,5 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 pulldown-cmark = { workspace = true }
 tracing = { workspace = true }
+tantivy = { workspace = true }
+jieba-rs = "0.7"

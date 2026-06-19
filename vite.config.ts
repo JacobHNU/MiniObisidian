@@ -8,6 +8,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    target: 'esnext',  // Required for top-level await (used by pdfjs-dist)
+  },
+  esbuild: {
+    target: 'esnext',
   },
   server: {
     strictPort: true,

@@ -379,25 +379,32 @@ impl NoteService {
         Ok(())
     }
 
-    /// Delete a folder and all its contents
+    /// Delete a folder and all its contents (moves notes to trash first)
     pub fn delete_folder(&self, folder_path: &str) -> Result<()> {
         let abs_path = self.vault_path().join(folder_path);
         
-        // First, delete all notes in this folder from the database
+        // First, move all notes in this folder to trash
         let all_notes = self.list_notes()?;
         for note in all_notes {
             if note.path.starts_with(folder_path) {
-                // Delete from database
-                self.db.delete_note(&note.id)?;
-                // Delete the file if it exists
                 let note_path = self.vault_path().join(&note.path);
                 if note_path.exists() {
-                    let _ = fs::remove_file(note_path);
+                    // Move to trash (same as delete_note)
+                    let trash_name = format!(
+                        "{}.{}.{}",
+                        note.path.replace('/', "_"),
+                        Utc::now().timestamp(),
+                        "md"
+                    );
+                    let trash_path = self.vault_path.join(".vault").join("trash").join(&trash_name);
+                    let _ = fs::rename(&note_path, &trash_path);
                 }
+                // Remove from database
+                self.db.delete_note(&note.id)?;
             }
         }
         
-        // Delete the folder itself
+        // Delete the folder itself (now empty or only contains non-md files)
         if abs_path.exists() && abs_path.is_dir() {
             fs::remove_dir_all(&abs_path)?;
         }
@@ -422,7 +429,7 @@ impl NoteService {
         self.update_note(note_id, &new_content)
     }
 
-    /// Move a note to a different folder
+    /// Move a note to a different folder with cross-device support and conflict handling
     pub fn move_note(&self, note_id: &str, target_folder: &str) -> Result<NoteMeta> {
         let meta = self
             .db
@@ -430,48 +437,116 @@ impl NoteService {
             .context("Note not found")?;
 
         let old_abs_path = self.vault_path.join(&meta.path);
+        if !old_abs_path.exists() {
+            anyhow::bail!("Source file not found: {}", old_abs_path.display());
+        }
+
         let filename = old_abs_path
             .file_name()
             .context("Invalid path")?
             .to_string_lossy()
             .to_string();
 
-        let new_relative_path = format!("{}/{}", target_folder, filename);
-        let new_abs_path = self.vault_path.join(&new_relative_path);
+        // Build target path with conflict resolution
+        let mut new_relative_path = if target_folder.is_empty() {
+            filename.clone()
+        } else {
+            format!("{}/{}", target_folder, filename)
+        };
+        let mut new_abs_path = self.vault_path.join(&new_relative_path);
+
+        // Handle same-name conflict: append numeric suffix
+        if new_abs_path.exists() && new_abs_path != old_abs_path {
+            let stem = Path::new(&filename)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy();
+            let ext = Path::new(&filename)
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy()))
+                .unwrap_or_default();
+            for i in 1..1000 {
+                let candidate = format!("{} ({}){}", stem, i, ext);
+                let candidate_rel = if target_folder.is_empty() {
+                    candidate.clone()
+                } else {
+                    format!("{}/{}", target_folder, candidate)
+                };
+                let candidate_abs = self.vault_path.join(&candidate_rel);
+                if !candidate_abs.exists() {
+                    new_relative_path = candidate_rel;
+                    new_abs_path = candidate_abs;
+                    break;
+                }
+            }
+        }
 
         // Ensure target folder exists
         if let Some(parent) = new_abs_path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        // Move file
-        fs::rename(&old_abs_path, &new_abs_path)?;
+        // Try fs::rename first (atomic, fast)
+        let move_result = fs::rename(&old_abs_path, &new_abs_path);
+        if move_result.is_err() {
+            // Cross-device fallback: copy + delete
+            fs::copy(&old_abs_path, &new_abs_path).context(
+                "Failed to copy file. Check disk space and file permissions."
+            )?;
+            // Only remove source after successful copy
+            if let Err(e) = fs::remove_file(&old_abs_path) {
+                // Copy succeeded but delete failed - still update DB since file exists at new location
+                tracing::warn!("Failed to remove source file after copy: {}", e);
+            }
+        }
 
-        // Update database
+        // Update database using atomic path update (avoids UNIQUE constraint conflict)
+        if let Err(db_err) = self.db.update_note_path(&meta.id, &new_relative_path, &meta.content_hash) {
+            // Rollback: move file back to original location
+            let _ = fs::rename(&new_abs_path, &old_abs_path);
+            anyhow::bail!("Database update failed, file move rolled back: {}", db_err);
+        }
+
         let updated = NoteMeta {
             path: new_relative_path,
-            ..meta.clone()
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            ..meta
         };
-        self.db.upsert_note(&updated)?;
 
         Ok(updated)
     }
 
-    /// Scan the vault directory and index all markdown files
+    /// Scan the vault directory and index all markdown files (incremental)
     pub fn scan_vault(&self) -> Result<Vec<NoteMeta>> {
-        // Clear old entries before re-scanning to avoid stale/duplicate IDs
-        self.db.clear_all_notes()?;
+        // Load existing notes from the database for incremental comparison
+        let existing_notes = self.db.list_notes()?;
+
         let mut indexed = Vec::new();
-        self.scan_directory(&self.vault_path, "", &mut indexed)?;
+        let mut seen_paths = std::collections::HashSet::new();
+        self.scan_directory_incremental(&self.vault_path, "", &mut indexed, &mut seen_paths, &existing_notes)?;
+
+        // Remove notes from DB whose files no longer exist on disk
+        for note in &existing_notes {
+            if !seen_paths.contains(&note.path) {
+                let abs_path = self.vault_path.join(&note.path);
+                if !abs_path.exists() {
+                    self.db.delete_note(&note.id)?;
+                    tracing::info!("Removed stale note from DB: {}", note.path);
+                }
+            }
+        }
+
         tracing::info!("Scanned and indexed {} notes", indexed.len());
         Ok(indexed)
     }
 
-    fn scan_directory(
+    fn scan_directory_incremental(
         &self,
         dir: &Path,
         prefix: &str,
         indexed: &mut Vec<NoteMeta>,
+        seen_paths: &mut std::collections::HashSet<String>,
+        existing_notes: &[NoteMeta],
     ) -> Result<()> {
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
@@ -487,24 +562,99 @@ impl NoteService {
                 } else {
                     format!("{}/{}", prefix, name)
                 };
-                self.scan_directory(&path, &rel, indexed)?;
-            } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+                self.scan_directory_incremental(&path, &rel, indexed, seen_paths, existing_notes)?;
+            } else {
                 let name = entry.file_name().to_string_lossy().to_string();
+                let ext = path.extension().map(|e| e.to_string_lossy().to_string().to_lowercase()).unwrap_or_default();
                 let relative_path = if prefix.is_empty() {
                     name.clone()
                 } else {
                     format!("{}/{}", prefix, name)
                 };
 
-                match self.index_file(&relative_path) {
-                    Ok(meta) => indexed.push(meta),
-                    Err(e) => {
-                        tracing::warn!("Failed to index {}: {}", relative_path, e);
+                // Only index markdown and PDF files
+                if ext != "md" && ext != "pdf" {
+                    continue;
+                }
+
+                seen_paths.insert(relative_path.clone());
+
+                // Check if this file has changed by comparing content hash
+                let current_hash = if ext == "md" {
+                    fs::read_to_string(&path)
+                        .ok()
+                        .map(|c| parser::content_hash(&c))
+                } else {
+                    // For PDF files, use file metadata hash
+                    fs::metadata(&path)
+                        .ok()
+                        .map(|m| format!("{}-{}", m.len(), m.modified().map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()).unwrap_or(0)))
+                        .map(|s| parser::content_hash(&s))
+                };
+
+                let existing = existing_notes.iter().find(|n| n.path == relative_path);
+
+                let needs_reindex = match (existing, &current_hash) {
+                    (Some(note), Some(hash)) => note.content_hash != *hash,
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+
+                if needs_reindex {
+                    let result = if ext == "pdf" {
+                        self.index_pdf_file(&relative_path)
+                    } else {
+                        self.index_file(&relative_path)
+                    };
+                    match result {
+                        Ok(meta) => indexed.push(meta),
+                        Err(e) => {
+                            tracing::warn!("Failed to index {}: {}", relative_path, e);
+                        }
                     }
+                } else if let Some(note) = existing {
+                    indexed.push(note.clone());
                 }
             }
         }
         Ok(())
+    }
+
+    /// Index a PDF file (without parsing frontmatter)
+    fn index_pdf_file(&self, relative_path: &str) -> Result<NoteMeta> {
+        let abs_path = self.vault_path.join(relative_path);
+
+        // Use file metadata for hash
+        let metadata = fs::metadata(&abs_path)?;
+        let hash = format!("{}-{}", metadata.len(), metadata.modified()
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+            .unwrap_or(0));
+        let hash = parser::content_hash(&hash);
+
+        // Check if already exists in DB
+        let existing = self.db.list_notes()?.into_iter().find(|n| n.path == relative_path);
+        let id = existing.map(|n| n.id).unwrap_or_else(|| Uuid::new_v4().to_string());
+
+        let title = Path::new(relative_path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Untitled".to_string());
+
+        let now = Utc::now().to_rfc3339();
+
+        let meta = NoteMeta {
+            id,
+            path: relative_path.to_string(),
+            title,
+            tags: vec!["pdf".to_string()],
+            content_hash: hash,
+            created_at: now.clone(),
+            updated_at: now,
+        };
+
+        self.db.upsert_note(&meta)?;
+
+        Ok(meta)
     }
 
     fn index_file(&self, relative_path: &str) -> Result<NoteMeta> {
@@ -513,11 +663,15 @@ impl NoteService {
         let parsed = parser::parse_note(&content)?;
         let hash = parser::content_hash(&content);
 
-        // Reuse existing ID from frontmatter for stability across restarts
+        // Check if file already exists in DB by path
+        let existing = self.db.list_notes()?.into_iter().find(|n| n.path == relative_path);
+
+        // Reuse existing ID from frontmatter or database for stability across restarts
         let id = parsed
             .frontmatter
             .id
             .clone()
+            .or_else(|| existing.as_ref().map(|n| n.id.clone()))
             .unwrap_or_else(|| Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
 
@@ -534,6 +688,7 @@ impl NoteService {
         let created_at = parsed
             .frontmatter
             .created
+            .or_else(|| existing.as_ref().map(|n| n.created_at.clone()))
             .unwrap_or_else(|| now.clone());
         let updated_at = parsed
             .frontmatter
@@ -563,13 +718,51 @@ impl NoteService {
         // Extract wiki links and add them
         let wiki_links = link::extract_wiki_links(body);
         for wl in &wiki_links {
-            // Try to find target note by title or filename
-            let target_id = link::target_to_id(&wl.target);
+            // Try to find target note by title
+            let target_id = self.find_note_id_by_title(&wl.target)
+                .unwrap_or_else(|| link::target_to_id(&wl.target));
             self.db
                 .upsert_link(source_id, &target_id, Some(&wl.context))?;
         }
 
+        // Also extract standard markdown links
+        let md_links = link::extract_md_links(body);
+        for ml in &md_links {
+            let target_id = self.find_note_id_by_title(&ml.target)
+                .unwrap_or_else(|| link::target_to_id(&ml.target));
+            self.db
+                .upsert_link(source_id, &target_id, Some(&ml.context))?;
+        }
+
         Ok(())
+    }
+
+    /// Find note ID by title (exact match first, then fuzzy)
+    fn find_note_id_by_title(&self, title: &str) -> Option<String> {
+        let notes = self.db.list_notes().ok()?;
+        
+        // Try exact title match first
+        if let Some(note) = notes.iter().find(|n| n.title == title) {
+            return Some(note.id.clone());
+        }
+        
+        // Try case-insensitive match
+        let title_lower = title.to_lowercase();
+        if let Some(note) = notes.iter().find(|n| n.title.to_lowercase() == title_lower) {
+            return Some(note.id.clone());
+        }
+        
+        // Try matching by filename (without extension)
+        for note in &notes {
+            if let Some(stem) = Path::new(&note.path).file_stem() {
+                let stem_str = stem.to_string_lossy().to_string();
+                if stem_str == title || stem_str.to_lowercase() == title_lower {
+                    return Some(note.id.clone());
+                }
+            }
+        }
+        
+        None
     }
 
     /// Get all links for the knowledge graph
@@ -625,4 +818,63 @@ pub struct GraphNode {
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
+}
+
+/// Search-related methods for NoteService
+impl NoteService {
+    /// Search notes using full-text search
+    pub fn search_notes(
+        &self,
+        query: &str,
+        limit: usize,
+        search_engine: &crate::search::SearchEngine,
+    ) -> Result<Vec<crate::search::SearchResult>> {
+        search_engine.search(query, limit)
+    }
+
+    /// Index all notes for full-text search
+    pub fn index_all_notes_for_search(
+        &self,
+        search_engine: &crate::search::SearchEngine,
+    ) -> Result<()> {
+        let notes = self.list_notes()?;
+        let mut notes_with_content = Vec::new();
+
+        for note in notes {
+            let abs_path = self.vault_path.join(&note.path);
+            if abs_path.exists() {
+                match fs::read_to_string(&abs_path) {
+                    Ok(content) => {
+                        let parsed = parser::parse_note(&content)?;
+                        notes_with_content.push((note, parsed.body));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to read note {}: {}", note.path, e);
+                    }
+                }
+            }
+        }
+
+        search_engine.index_all_notes(&notes_with_content)?;
+        Ok(())
+    }
+
+    /// Index a single note for search
+    pub fn index_note_for_search(
+        &self,
+        note_id: &str,
+        search_engine: &crate::search::SearchEngine,
+    ) -> Result<()> {
+        let note = self
+            .db
+            .get_note(note_id)?
+            .context("Note not found")?;
+
+        let abs_path = self.vault_path.join(&note.path);
+        let content = fs::read_to_string(&abs_path)?;
+        let parsed = parser::parse_note(&content)?;
+
+        search_engine.index_note(&note, &parsed.body)?;
+        Ok(())
+    }
 }

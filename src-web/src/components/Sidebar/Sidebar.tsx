@@ -1,18 +1,22 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import type { NoteMeta, FileInfo } from '../../ipc/tauri'
 import * as api from '../../ipc/tauri'
+import ConfirmDialog from '../ConfirmDialog'
 
 interface SidebarProps {
   notes: NoteMeta[]
   folders: string[]
   currentNoteId: string | null
   onSelectNote: (noteId: string) => void
+  onOpenPdf: (dataUri: string, fileName: string, noteId: string) => void
   onCreateNote: () => void
   onCreateNoteInFolder: (folder: string) => void
   onCreateFolder: (folderPath: string) => void
+  onDeleteFolder: (folderPath: string) => void
   onCreateDailyNote: (date?: string) => void
   onDeleteNote: (noteId: string) => void
   onRenameNote: (noteId: string, newTitle: string) => void
+  onMoveNote: (noteId: string, destPath: string) => void
   onClose: () => void
   onSwitchVault: () => void
 }
@@ -41,12 +45,15 @@ export default function Sidebar({
   folders,
   currentNoteId,
   onSelectNote,
+  onOpenPdf,
   onCreateNote,
   onCreateNoteInFolder,
   onCreateFolder,
+  onDeleteFolder,
   onCreateDailyNote,
   onDeleteNote,
   onRenameNote,
+  onMoveNote,
   onClose,
   onSwitchVault,
 }: SidebarProps) {
@@ -61,6 +68,35 @@ export default function Sidebar({
   const [renameValue, setRenameValue] = useState('')
   const folderInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    onConfirm: () => void
+  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} })
+
+  // Drag and drop state
+  const [dragState, setDragState] = useState<{
+    isDragging: boolean
+    draggedNoteId: string | null
+    draggedNotePath: string | null
+    dropTargetPath: string | null
+    dropTargetName: string | null
+  }>({
+    isDragging: false,
+    draggedNoteId: null,
+    draggedNotePath: null,
+    dropTargetPath: null,
+    dropTargetName: null
+  })
+  const dragStateRef = useRef(dragState)
+  useEffect(() => { dragStateRef.current = dragState }, [dragState])
+
+  // Click timer refs for distinguishing single/double click on notes
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isDoubleClickRef = useRef(false)
 
   useEffect(() => {
     const handler = () => {
@@ -184,6 +220,72 @@ export default function Sidebar({
     setExpanded((prev) => { const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n })
   }
 
+  // Drag and drop handlers
+  const handleDragStart = useCallback((e: React.DragEvent, noteId: string, notePath: string) => {
+    e.dataTransfer.setData('text/plain', noteId)
+    e.dataTransfer.effectAllowed = 'move'
+    const newState = {
+      isDragging: true,
+      draggedNoteId: noteId,
+      draggedNotePath: notePath,
+      dropTargetPath: null as string | null,
+      dropTargetName: null as string | null
+    }
+    dragStateRef.current = newState // Sync ref immediately for event handlers
+    setDragState(newState)
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    const resetState = {
+      isDragging: false,
+      draggedNoteId: null,
+      draggedNotePath: null,
+      dropTargetPath: null,
+      dropTargetName: null
+    }
+    dragStateRef.current = resetState
+    setDragState(resetState)
+  }, [])
+
+  // Called when dragging over a specific folder node — sets that folder as drop target
+  const handleFolderDragOver = useCallback((e: React.DragEvent, folderPath: string, folderName: string) => {
+    e.preventDefault()
+    e.stopPropagation() // Prevent bubbling to container (root drop target)
+    e.dataTransfer.dropEffect = 'move'
+    setDragState(prev => {
+      if (prev.dropTargetPath === folderPath) return prev // No state change needed
+      return { ...prev, dropTargetPath: folderPath, dropTargetName: folderName }
+    })
+  }, [])
+
+  // Called when dragging over the sidebar scrollable container (but not over a folder) — root drop target
+  const handleContainerDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault() // Always prevent default to allow drop, must be before guard
+    if (!dragStateRef.current.isDragging) return // Only update state during active drag
+    e.dataTransfer.dropEffect = 'move'
+    setDragState(prev => {
+      if (prev.dropTargetPath === '') return prev
+      return { ...prev, dropTargetPath: '', dropTargetName: '' }
+    })
+  }, [])
+
+  // Called when drag enters the container — ensure default is prevented
+  const handleContainerDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault() // Required by HTML5 DnD spec
+  }, [])
+
+  // Unified drop handler — works for both folders and root
+  const handleDrop = useCallback((e: React.DragEvent, destPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!dragStateRef.current.isDragging) return // Only respond during active drag
+    const noteId = e.dataTransfer.getData('text/plain')
+    if (noteId) {
+      onMoveNote(noteId, destPath)
+    }
+    handleDragEnd()
+  }, [onMoveNote, handleDragEnd])
+
   const handleCreateFolder = () => {
     const name = newFolderName.trim()
     if (name) { onCreateFolder(name); setExpanded((p) => new Set(p).add(name)) }
@@ -214,27 +316,91 @@ export default function Sidebar({
 
   const renderNoteItem = (note: NoteMeta, paddingLeft: number) => {
     const isRenaming = renamingNoteId === note.id
-    const displayTitle = note.title || note.path.split('/').pop()?.replace('.md', '') || 'Untitled'
+    const displayTitle = note.title || note.path.split('/').pop()?.replace(/\.(md|pdf)$/i, '') || 'Untitled'
+    const isDragging = dragState.draggedNoteId === note.id
+    const isPdf = note.path.toLowerCase().endsWith('.pdf')
+
+    const handleSingleClick = async () => {
+      if (isRenaming) return
+      if (isPdf) {
+        try {
+          const base64Data = await api.readFileBase64(note.path)
+          if (!base64Data) {
+            alert('无法打开PDF文件: 返回数据为空')
+            return
+          }
+          onOpenPdf(base64Data, displayTitle, note.id)
+        } catch (e) {
+          console.error('[PDF] Failed to open PDF:', e)
+          alert('无法打开PDF文件: ' + String(e))
+        }
+      } else {
+        onSelectNote(note.id)
+      }
+    }
+
+    const handleClick = () => {
+      if (isRenaming) return
+      // Clear any pending single click
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current)
+        clickTimerRef.current = null
+      }
+      // Mark that we're not in a double-click yet
+      isDoubleClickRef.current = false
+      // Delay single click to allow double-click to cancel it
+      clickTimerRef.current = setTimeout(() => {
+        if (!isDoubleClickRef.current) {
+          handleSingleClick()
+        }
+        clickTimerRef.current = null
+      }, 200)
+    }
+
+    const handleDoubleClick = () => {
+      // Cancel pending single click
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current)
+        clickTimerRef.current = null
+      }
+      isDoubleClickRef.current = true
+      if (!isPdf) {
+        startRename(note.id, displayTitle)
+      }
+    }
 
     return (
       <div
         key={note.id}
         data-custom-context-menu="true"
+        draggable={!isRenaming}
         className={`folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group ${
           currentNoteId === note.id ? 'active bg-[#45475a]' : ''
-        }`}
+        } ${isDragging ? 'opacity-50' : ''}`}
         style={{ paddingLeft: `${paddingLeft}px` }}
-        onClick={() => !isRenaming && onSelectNote(note.id)}
-        onDoubleClick={() => startRename(note.id, displayTitle)}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         onContextMenu={(e) => {
           e.preventDefault(); e.stopPropagation()
           setContextMenu({ x: e.clientX, y: e.clientY, type: 'note', noteId: note.id, noteTitle: displayTitle })
         }}
+        onDragStart={(e) => handleDragStart(e, note.id, note.path)}
+        onDragEnd={handleDragEnd}
+        onDragEnter={(e) => e.preventDefault()}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-          <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-        </svg>
+        {isPdf ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <polyline points="14,2 14,8 20,8" />
+            <path d="M9 15l2 2 4-4" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+          </svg>
+        )}
         {isRenaming ? (
           <input
             ref={renameInputRef}
@@ -253,7 +419,15 @@ export default function Sidebar({
           <span className="text-[#cdd6f4] truncate flex-1">{displayTitle}</span>
         )}
         <button
-          onClick={(e) => { e.stopPropagation(); onDeleteNote(note.id) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            setConfirmDialog({
+              isOpen: true,
+              title: '删除笔记',
+              message: `确定要删除「${displayTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+              onConfirm: () => { onDeleteNote(note.id); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
+            })
+          }}
           className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#585b70] text-[#6c7086] hover:text-[#f38ba8] transition-opacity"
           title="Delete"
         >
@@ -298,8 +472,17 @@ export default function Sidebar({
           className="w-full px-2.5 py-1.5 text-sm bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] placeholder-[#6c7086] focus:outline-none focus:border-[#cba6f7]" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-1 py-1">
-        <div className="px-2 py-1.5"><span className="text-[10px] font-bold uppercase tracking-wider text-[#6c7086]">Notebooks</span></div>
+      <div className="flex-1 overflow-y-auto px-1 py-1"
+        onDragEnter={handleContainerDragEnter}
+        onDragOver={handleContainerDragOver}
+        onDrop={(e) => handleDrop(e, '')}
+      >
+        <div className="px-2 py-1.5 flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6c7086]">Notebooks</span>
+          {dragState.isDragging && (dragState.dropTargetPath === null || dragState.dropTargetPath === '') && (
+            <span className="text-[10px] text-[#89b4fa] animate-pulse">放置到根目录</span>
+          )}
+        </div>
 
         {creatingFolder && (
           <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-[#313244]">
@@ -318,7 +501,9 @@ export default function Sidebar({
           creatingSubFolder={creatingSubFolder} subFolderName={subFolderName}
           onSubFolderNameChange={setSubFolderName} onConfirmSubFolder={handleCreateSubFolder}
           onCancelSubFolder={() => { setCreatingSubFolder(null); setSubFolderName('') }}
-          renderNoteItem={renderNoteItem} />
+          renderNoteItem={renderNoteItem}
+          onDragOver={handleFolderDragOver} onDrop={handleDrop}
+          dropTargetPath={dragState.dropTargetPath} />
 
         <div className="px-2 py-1.5 mt-3 border-t border-[#313244]">
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#6c7086]">Daily Notes</span>
@@ -389,7 +574,16 @@ export default function Sidebar({
               </button>
               <div className="border-t border-[#45475a] my-1" />
               <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
-                onClick={() => { onDeleteNote(contextMenu.noteId!); setContextMenu(null) }}>
+                onClick={() => {
+                  const noteTitle = contextMenu.noteTitle || '此笔记'
+                  setConfirmDialog({
+                    isOpen: true,
+                    title: '删除笔记',
+                    message: `确定要删除「${noteTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+                    onConfirm: () => { onDeleteNote(contextMenu.noteId!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
+                  })
+                  setContextMenu(null)
+                }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                 Delete
               </button>
@@ -418,7 +612,16 @@ export default function Sidebar({
                     Show in Folder
                   </button>
                   <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
-                    onClick={() => { onDeleteNote(contextMenu.noteId!); setContextMenu(null) }}>
+                    onClick={() => {
+                      const noteTitle = contextMenu.noteTitle || notes.find(n => n.id === contextMenu.noteId)?.title || '此笔记'
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: '删除笔记',
+                        message: `确定要删除「${noteTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+                        onConfirm: () => { onDeleteNote(contextMenu.noteId!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
+                      })
+                      setContextMenu(null)
+                    }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                     Delete This Note
                   </button>
@@ -476,10 +679,11 @@ export default function Sidebar({
                 onClick={() => { 
                   if (contextMenu.year && contextMenu.month) {
                     const folderPath = `daily/${contextMenu.year}/${contextMenu.month}`
-                    // Use our new API to delete the entire folder
-                    api.deleteFolder(folderPath).then(() => {
-                      // Refresh notes and folders after deletion
-                      window.location.reload()
+                    setConfirmDialog({
+                      isOpen: true,
+                      title: '删除月份文件夹',
+                      message: `确定要删除「${contextMenu.year}年${contextMenu.month}月」文件夹及其所有笔记吗？文件夹内的笔记将移入回收站，可在 .vault/trash 中找回。`,
+                      onConfirm: () => { onDeleteFolder(folderPath); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
                     })
                   }
                   setContextMenu(null) 
@@ -491,6 +695,15 @@ export default function Sidebar({
           )}
         </div>
       )}
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }
@@ -503,11 +716,16 @@ interface FolderTreeProps {
   creatingSubFolder: string | null; subFolderName: string
   onSubFolderNameChange: (name: string) => void; onConfirmSubFolder: () => void; onCancelSubFolder: () => void
   renderNoteItem: (note: NoteMeta, paddingLeft: number) => React.ReactNode
+  onDragOver?: (e: React.DragEvent, folderPath: string, folderName: string) => void
+  onDrop?: (e: React.DragEvent, destPath: string) => void
+  dropTargetPath?: string | null
 }
 
-function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onCreateNoteInFolder, onFolderContextMenu,
-  creatingSubFolder, subFolderName, onSubFolderNameChange, onConfirmSubFolder, onCancelSubFolder, renderNoteItem }: FolderTreeProps) {
+function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onSelectNote, onDeleteNote, onCreateNoteInFolder, onFolderContextMenu,
+  creatingSubFolder, subFolderName, onSubFolderNameChange, onConfirmSubFolder, onCancelSubFolder, renderNoteItem,
+  onDragOver, onDrop, dropTargetPath }: FolderTreeProps) {
   const isExpanded = expanded.has(node.path)
+  const isDropTarget = dropTargetPath === node.path
   const [files, setFiles] = useState<FileInfo[]>(node.files || [])
   const [loading, setLoading] = useState(false)
 
@@ -524,13 +742,27 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onCreateNo
   return (
     <div>
       {node.path && (
-        <div data-custom-context-menu="true" className="folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group"
-          style={{ paddingLeft: `${depth * 12 + 8}px` }} onClick={() => onToggle(node.path)}
-          onContextMenu={(e) => onFolderContextMenu(e, node.path)}>
+        <div data-custom-context-menu="true"
+          className={`folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group transition-all ${
+            isDropTarget ? 'bg-[#89b4fa]/20 border border-[#89b4fa] scale-[1.02]' : ''
+          }`}
+          style={{ paddingLeft: `${depth * 12 + 8}px` }}
+          onClick={() => onToggle(node.path)}
+          onContextMenu={(e) => onFolderContextMenu(e, node.path)}
+          onDragEnter={(e) => e.preventDefault()}
+          onDragOver={onDragOver ? (e) => onDragOver(e, node.path, node.name) : (e) => e.preventDefault()}
+          onDrop={onDrop ? (e) => onDrop(e, node.path) : undefined}
+        >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2"
             className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="#f9e2af" stroke="none"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
-          <span className="text-[#cdd6f4] truncate flex-1">{node.name}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={isDropTarget ? '#89b4fa' : '#f9e2af'} stroke="none">
+            <path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            {isDropTarget && <path d="M12 8v6m-3-3h6" stroke="#1e1e2e" strokeWidth="2" fill="none" />}
+          </svg>
+          <span className={`truncate flex-1 ${isDropTarget ? 'text-[#89b4fa] font-medium' : 'text-[#cdd6f4]'}`}>{node.name}</span>
+          {isDropTarget && (
+            <span className="text-[10px] text-[#89b4fa] animate-pulse">放置</span>
+          )}
           <button onClick={(e) => { e.stopPropagation(); onCreateNoteInFolder(node.path) }}
             className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#585b70] text-[#6c7086] hover:text-[#cdd6f4] transition-opacity" title="New note here">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
@@ -563,13 +795,15 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onCreateNo
             </div>
           ))}
           {node.children.map((child) => (
-            <FolderTree key={child.path} node={child} expanded={expanded} currentNoteId={currentNoteId}
-              depth={node.path ? depth + 1 : depth} onToggle={onToggle} onSelectNote={() => {}} onDeleteNote={() => {}}
-              onCreateNoteInFolder={onCreateNoteInFolder} onFolderContextMenu={onFolderContextMenu}
-              creatingSubFolder={creatingSubFolder} subFolderName={subFolderName}
-              onSubFolderNameChange={onSubFolderNameChange} onConfirmSubFolder={onConfirmSubFolder}
-              onCancelSubFolder={onCancelSubFolder} renderNoteItem={renderNoteItem} />
-          ))}
+          <FolderTree key={child.path} node={child} expanded={expanded} currentNoteId={currentNoteId} depth={depth + 1}
+            onToggle={onToggle} onSelectNote={onSelectNote} onDeleteNote={onDeleteNote}
+            onCreateNoteInFolder={onCreateNoteInFolder}
+            onFolderContextMenu={onFolderContextMenu}
+            creatingSubFolder={creatingSubFolder} subFolderName={subFolderName}
+            onSubFolderNameChange={onSubFolderNameChange} onConfirmSubFolder={onConfirmSubFolder}
+            onCancelSubFolder={onCancelSubFolder} renderNoteItem={renderNoteItem}
+            onDragOver={onDragOver} onDrop={onDrop} dropTargetPath={dropTargetPath} />
+        ))}
           {node.notes.map((note) => renderNoteItem(note, (node.path ? depth + 1 : depth) * 12 + 24))}
         </div>
       )}

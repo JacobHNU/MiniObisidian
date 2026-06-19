@@ -369,8 +369,20 @@ impl SyncEngine {
                 }
                 ChangeType::Modified => {
                     // Conflict: both sides changed
-                    let local_meta = change.local_meta.as_ref().unwrap();
-                    let remote_meta = change.remote_meta.as_ref().unwrap();
+                    let local_meta = match change.local_meta.as_ref() {
+                        Some(m) => m,
+                        None => {
+                            tracing::warn!("Modified change missing local_meta: {}", change.relative_path);
+                            continue;
+                        }
+                    };
+                    let remote_meta = match change.remote_meta.as_ref() {
+                        Some(m) => m,
+                        None => {
+                            tracing::warn!("Modified change missing remote_meta: {}", change.relative_path);
+                            continue;
+                        }
+                    };
                     let resolution = self.conflict_resolver.resolve(local_meta, remote_meta);
 
                     match resolution {
@@ -420,7 +432,7 @@ impl SyncEngine {
 
                             // Save local as backup
                             if let Ok(content) = std::fs::read(&local_path) {
-                                let _ = std::fs::create_dir_all(backup_path.parent().unwrap());
+                                let _ = std::fs::create_dir_all(backup_path.parent().unwrap_or(&backup_path));
                                 let _ = std::fs::write(&backup_path, &content);
                             }
 

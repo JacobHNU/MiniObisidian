@@ -35,9 +35,10 @@ pub fn extract_wiki_links(body: &str) -> Vec<WikiLink> {
 
 /// Extract all standard markdown links [text](url) that point to .md files
 pub fn extract_md_links(body: &str) -> Vec<WikiLink> {
-    let links = Vec::new();
+    let mut links = Vec::new();
     let parser = Parser::new(body);
     let mut current_text = String::new();
+    let mut current_url = String::new();
     let mut in_link = false;
 
     for event in parser {
@@ -45,19 +46,38 @@ pub fn extract_md_links(body: &str) -> Vec<WikiLink> {
             Event::Start(Tag::Link { dest_url, .. }) => {
                 in_link = true;
                 current_text.clear();
-                let url = dest_url.to_string();
-                if url.ends_with(".md") || !url.contains("://") {
-                    // Internal link
-                } else {
-                    in_link = false;
-                }
+                current_url = dest_url.to_string();
             }
             Event::Text(text) if in_link => {
                 current_text.push_str(&text);
             }
             Event::End(TagEnd::Link) if in_link => {
                 in_link = false;
-                // This is a simplified extraction
+                
+                // Check if this is an internal link (points to .md file or relative path)
+                let is_internal = current_url.ends_with(".md") || 
+                    (!current_url.contains("://") && !current_url.starts_with("mailto:"));
+                
+                if is_internal && !current_text.is_empty() {
+                    // Extract the target from URL (remove .md extension if present)
+                    let target = if current_url.ends_with(".md") {
+                        current_url[..current_url.len() - 3].to_string()
+                    } else {
+                        current_url.clone()
+                    };
+                    
+                    // Get surrounding context (current paragraph)
+                    // Note: We need to calculate position differently since we're using parser
+                    let context = format!("Link: [{}]({})", current_text, current_url);
+                    
+                    links.push(WikiLink { 
+                        target: target, 
+                        context: context 
+                    });
+                }
+                
+                current_text.clear();
+                current_url.clear();
             }
             _ => {}
         }
@@ -76,9 +96,10 @@ fn extract_paragraph_context(body: &str, link_pos: usize) -> String {
     let para_end = after.find("\n\n").map(|p| link_pos + p).unwrap_or(body.len());
 
     let paragraph = &body[para_start..para_end];
-    // Truncate if too long
+    // Truncate if too long (use chars to avoid UTF-8 boundary panic)
     if paragraph.len() > 200 {
-        format!("{}...", &paragraph[..200])
+        let truncated: String = paragraph.chars().take(200).collect();
+        format!("{}...", truncated)
     } else {
         paragraph.to_string()
     }
@@ -110,6 +131,28 @@ mod tests {
     fn test_extract_no_links() {
         let body = "No wiki links here, just [regular](http://example.com) links.";
         let links = extract_wiki_links(body);
+        assert_eq!(links.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_md_links() {
+        let body = r#"This is a [link to notes](meeting-notes.md) and [another](project.md).
+        
+External [Google](https://google.com) should be ignored.
+        
+Also [relative link](docs/readme.md) should be included."#;
+        
+        let links = extract_md_links(body);
+        assert_eq!(links.len(), 3);
+        assert_eq!(links[0].target, "meeting-notes");
+        assert_eq!(links[1].target, "project");
+        assert_eq!(links[2].target, "docs/readme");
+    }
+
+    #[test]
+    fn test_extract_md_links_no_external() {
+        let body = "External [Google](https://google.com) and [Email](mailto:test@example.com) should be ignored.";
+        let links = extract_md_links(body);
         assert_eq!(links.len(), 0);
     }
 

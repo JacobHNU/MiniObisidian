@@ -6,15 +6,56 @@ import GraphView from './components/Graph/GraphView'
 import VaultSetup from './components/VaultSetup'
 import AIPanel from './components/AI/AIPanel'
 import SyncPanel from './components/Sync/SyncPanel'
+import BacklinksPanel from './components/Backlinks/BacklinksPanel'
 import TabBar, { Tab } from './components/TabBar/TabBar'
+import ExportPDFDialog, { ExportOptions } from './components/PDF/ExportPDFDialog'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
+
+/**
+ * Extract text from a base64-encoded PDF for AI context.
+ * Uses dynamic import so pdfjs-dist is NOT loaded at app startup,
+ * avoiding the top-level await error that crashes the entire UI.
+ */
+async function extractPdfText(base64Data: string): Promise<string> {
+  try {
+    const pdfjsLib = await import('pdfjs-dist')
+    // Configure worker using Vite's ?url import for correct bundled URL
+    try {
+      const workerMod = await import('pdfjs-dist/build/pdf.worker.mjs?url')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = (workerMod as { default: string }).default
+    } catch {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+    }
+
+    const binaryString = atob(base64Data)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+    const pdf = await pdfjsLib.getDocument({ data: bytes }).promise
+    let fullText = ''
+    const maxPages = Math.min(pdf.numPages, 200)
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i)
+      const textContent = await page.getTextContent()
+      const pageText = textContent.items.map((item: any) => item.str).join(' ')
+      fullText += `\n[第${i}页]\n${pageText}`
+    }
+    return fullText.trim()
+  } catch (err) {
+    console.error('Failed to extract PDF text:', err)
+    return ''
+  }
+}
 
 type ViewMode = 'edit' | 'preview' | 'split' | 'graph' | 'search'
 
 interface TabState {
   content: string
   filePath: string
+  isPdf?: boolean
+  pdfDataUrl?: string
 }
 
 export default function App() {
@@ -27,7 +68,20 @@ export default function App() {
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [exportPdfDialog, setExportPdfDialog] = useState<{ isOpen: boolean; noteTitle: string; noteContent: string }>({
+    isOpen: false, noteTitle: '', noteContent: ''
+  })
   const tabContentsRef = useRef<Record<string, TabState>>({})
+  const activeTabIdRef = useRef<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null)
+
+  // Auto-dismiss toast after 5 seconds
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 5000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   // Block default browser right-click menu
   useEffect(() => {
@@ -54,8 +108,9 @@ export default function App() {
     refreshFolders,
   } = useNotes(vaultReady)
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => { tabContentsRef.current = tabContents }, [tabContents])
+  useEffect(() => { activeTabIdRef.current = activeTabId }, [activeTabId])
 
   // Check for existing vault on mount
   useEffect(() => {
@@ -87,9 +142,10 @@ export default function App() {
       clearTimeout(saveTimerRef.current)
       saveTimerRef.current = null
     }
-    // Save all open tabs
+    // Save all open tabs (skip PDFs to prevent corruption)
     const contents = tabContentsRef.current
     for (const [tabId, state] of Object.entries(contents)) {
+      if (state.isPdf) continue // Never save PDF tabs
       if (state.content) {
         api.updateNote(tabId, state.content).catch(() => {})
       }
@@ -102,8 +158,10 @@ export default function App() {
   }, [])
 
   // Save a specific tab's content to backend
+  // IMPORTANT: Skip PDF tabs to prevent corrupting PDF files
   const saveTab = useCallback(async (tabId: string) => {
     const state = tabContentsRef.current[tabId]
+    if (state?.isPdf) return // Never save PDF tabs - they are read-only
     if (state?.content) {
       try {
         await api.updateNote(tabId, state.content)
@@ -216,28 +274,39 @@ export default function App() {
   }, [activeTabId, saveTab])
 
   // Content change handler for active tab
+  // Uses refs to avoid stale closures - always reads the latest activeTabId
   const handleContentChange = useCallback(
     (content: string) => {
-      if (!activeTabId) return
+      const currentTabId = activeTabIdRef.current
+      if (!currentTabId) return
+
+      // Never auto-save PDF tabs
+      const currentTab = tabContentsRef.current[currentTabId]
+      if (currentTab?.isPdf) return
 
       setTabContents(prev => ({
         ...prev,
-        [activeTabId]: { ...prev[activeTabId], content },
+        [currentTabId]: { ...prev[currentTabId], content },
       }))
 
-      // Auto-save with debounce
+      // Auto-save with debounce - capture tabId at timer creation time
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
       }
+      const tabIdAtSave = currentTabId
       saveTimerRef.current = setTimeout(async () => {
+        // Verify the tab is still active before saving
+        if (activeTabIdRef.current !== tabIdAtSave) return
         try {
-          await api.updateNote(activeTabId, content)
+          await api.updateNote(tabIdAtSave, content)
+          // Update search index for this note (fire-and-forget)
+          api.updateSearchIndexForNote(tabIdAtSave).catch(() => {})
         } catch (e) {
           console.error('Auto-save failed:', e)
         }
       }, 1000)
     },
-    [activeTabId]
+    [] // No dependencies - uses refs for latest values
   )
 
   const handleCreateNote = useCallback(async () => {
@@ -248,15 +317,17 @@ export default function App() {
       const noteTitle = `Note-${today}-${timeStr}`
       const body = `[[${today}]]\n\n`
       const note = await createNote(noteTitle, body, 'inbox', [])
-      const fullContent = `---\nid: "${note.id}"\ntitle: "${noteTitle}"\ntags: []\ncreated: "${now.toISOString()}"\nupdated: "${now.toISOString()}"\nlinks: ["${today}"]\n---\n\n${body}`
+
+      // Read the full content (with frontmatter) from the backend
+      const fullContent = await api.readNoteByPath(note.path)
 
       // Open in new tab
-      const newTab: Tab = { id: note.id, title: noteTitle, filePath: '' }
+      const newTab: Tab = { id: note.id, title: noteTitle, filePath: note.path }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(note.id)
       setTabContents(prev => ({
         ...prev,
-        [note.id]: { content: fullContent, filePath: '' },
+        [note.id]: { content: fullContent, filePath: note.path },
       }))
     } catch (e) {
       console.error('Failed to create note:', e)
@@ -272,14 +343,16 @@ export default function App() {
       const noteTitle = `Note-${today}-${timeStr}`
       const body = `[[${today}]]\n\n`
       const note = await createNote(noteTitle, body, folder, [])
-      const fullContent = `---\nid: "${note.id}"\ntitle: "${noteTitle}"\ntags: []\ncreated: "${now.toISOString()}"\nupdated: "${now.toISOString()}"\nlinks: ["${today}"]\n---\n\n${body}`
 
-      const newTab: Tab = { id: note.id, title: noteTitle, filePath: '' }
+      // Read the full content (with frontmatter) from the backend
+      const fullContent = await api.readNoteByPath(note.path)
+
+      const newTab: Tab = { id: note.id, title: noteTitle, filePath: note.path }
       setTabs(prev => [...prev, newTab])
       setActiveTabId(note.id)
       setTabContents(prev => ({
         ...prev,
-        [note.id]: { content: fullContent, filePath: '' },
+        [note.id]: { content: fullContent, filePath: note.path },
       }))
     } catch (e) {
       console.error('Failed to create note:', e)
@@ -347,18 +420,32 @@ export default function App() {
         }
       } catch (e) {
         console.error('Failed to delete note:', e)
+        setToast({ message: '删除笔记失败：' + String(e), type: 'error' })
       }
     },
     [deleteNote, tabs, handleTabClose]
   )
+
+  const handleDeleteFolder = useCallback(async (folderPath: string) => {
+    try {
+      await api.deleteFolder(folderPath)
+      await refreshNotes()
+      await refreshFolders()
+    } catch (e) {
+      console.error('Failed to delete folder:', e)
+      setToast({ message: '删除文件夹失败：' + String(e), type: 'error' })
+    }
+  }, [refreshNotes, refreshFolders])
 
   const handleMoveNote = useCallback(async (noteId: string, destPath: string) => {
     try {
       await api.moveNote(noteId, destPath)
       await refreshNotes()
       await refreshFolders()
+      setToast({ message: '笔记已移动', type: 'success' })
     } catch (e) {
       console.error('Failed to move note:', e)
+      setToast({ message: '移动笔记失败：' + String(e), type: 'error' })
     }
   }, [refreshNotes, refreshFolders])
 
@@ -393,12 +480,54 @@ export default function App() {
           folders={folders}
           currentNoteId={activeTabId}
           onSelectNote={handleSelectNote}
+          onOpenPdf={(base64Data, fileName, noteId) => {
+            // Create a tab for the PDF
+            const pdfTab: Tab = {
+              id: noteId || `pdf-${Date.now()}`,
+              title: fileName,
+              filePath: `pdf:${fileName}`,
+            }
+
+            setTabs(prev => {
+              if (prev.find(t => t.id === pdfTab.id)) {
+                setActiveTabId(pdfTab.id)
+                return prev
+              }
+              return [...prev, pdfTab]
+            })
+            setActiveTabId(pdfTab.id)
+            setTabContents(prev => ({
+              ...prev,
+              [pdfTab.id]: {
+                content: '',  // will be updated with extracted text below
+                filePath: pdfTab.filePath,
+                isPdf: true,
+                pdfDataUrl: base64Data,  // raw base64, no data: prefix
+              },
+            }))
+            setViewMode('preview')
+
+            // Asynchronously extract PDF text for AI context
+            extractPdfText(base64Data).then((extractedText) => {
+              if (extractedText) {
+                setTabContents(prev => ({
+                  ...prev,
+                  [pdfTab.id]: {
+                    ...prev[pdfTab.id],
+                    content: extractedText,
+                  },
+                }))
+              }
+            })
+          }}
           onCreateNote={handleCreateNote}
           onCreateNoteInFolder={handleCreateNoteInFolder}
           onCreateFolder={handleCreateFolder}
+          onDeleteFolder={handleDeleteFolder}
           onCreateDailyNote={handleCreateDailyNote}
           onDeleteNote={handleDeleteNote}
           onRenameNote={handleRenameNote}
+          onMoveNote={handleMoveNote}
           onClose={() => setSidebarOpen(false)}
           onSwitchVault={handleSwitchVault}
         />
@@ -484,7 +613,7 @@ export default function App() {
         />
 
         {/* Content area */}
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {viewMode === 'search' ? (
             <SearchPanel onSelectNote={handleSelectNote} />
           ) : viewMode === 'graph' ? (
@@ -496,11 +625,23 @@ export default function App() {
               notes={notes}
             />
           ) : activeTabId ? (
-            <EditorPanel
-              content={currentContent}
-              onChange={handleContentChange}
-              viewMode={viewMode}
-            />
+            <>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <EditorPanel
+                  key={activeTabId}
+                  content={currentContent}
+                  onChange={handleContentChange}
+                  viewMode={viewMode}
+                  onWikiLinkClick={handleWikiLinkClick}
+                  isPdf={tabContents[activeTabId]?.isPdf}
+                  pdfDataUrl={tabContents[activeTabId]?.pdfDataUrl}
+                />
+              </div>
+              <BacklinksPanel
+                noteId={activeTabId}
+                onSelectNote={handleSelectNote}
+              />
+            </>
           ) : (
             <div className="flex items-center justify-center h-full text-[#6c7086]">
               <div className="text-center">
@@ -532,6 +673,38 @@ export default function App() {
         isOpen={syncPanelOpen}
         onClose={() => setSyncPanelOpen(false)}
       />
+
+      {/* Export PDF Dialog */}
+      <ExportPDFDialog
+        isOpen={exportPdfDialog.isOpen}
+        noteTitle={exportPdfDialog.noteTitle}
+        noteContent={exportPdfDialog.noteContent}
+        onExport={(options: ExportOptions) => {
+          // Export logic would go here
+          console.log('Export PDF with options:', options)
+          setExportPdfDialog({ isOpen: false, noteTitle: '', noteContent: '' })
+        }}
+        onClose={() => setExportPdfDialog({ isOpen: false, noteTitle: '', noteContent: '' })}
+      />
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg shadow-2xl text-sm font-medium flex items-center gap-3 animate-fade-in ${
+          toast.type === 'error'
+            ? 'bg-[#f38ba8] text-[#1e1e2e]'
+            : 'bg-[#a6e3a1] text-[#1e1e2e]'
+        }`}>
+          <span>{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="opacity-70 hover:opacity-100"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

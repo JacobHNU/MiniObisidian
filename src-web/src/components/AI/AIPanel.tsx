@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import type { UnlistenFn } from '@tauri-apps/api/event'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as api from '../../ipc/tauri'
+import ConfirmDialog from '../ConfirmDialog'
+
+// pdfjs-dist is loaded dynamically in handlePdfUpload to avoid
+// the top-level await in pdf.mjs from crashing the app at startup.
 
 interface Message {
   role: 'user' | 'assistant'
@@ -50,6 +55,18 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   const [optimizedResult, setOptimizedResult] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [clearChatConfirm, setClearChatConfirm] = useState(false)
+
+  // Streaming state
+  const [streamingContent, setStreamingContent] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
+  const streamAbortRef = useRef<UnlistenFn | null>(null)
+  const streamingContentRef = useRef('')
+
+  // PDF context state
+  const [pdfFiles, setPdfFiles] = useState<Map<string, { name: string; text: string; pages: Map<number, string> }>>(new Map())
+  const [pdfUploadLoading, setPdfUploadLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Auto-select active note when openNotes changes
   useEffect(() => {
@@ -83,7 +100,17 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, streamingContent])
+
+  // Cleanup stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamAbortRef.current) {
+        streamAbortRef.current()
+        streamAbortRef.current = null
+      }
+    }
+  }, [])
 
   // Focus input when panel opens
   useEffect(() => {
@@ -224,7 +251,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
 
   const handleSend = useCallback(async () => {
     const question = input.trim()
-    if (!question || loading) return
+    if (!question || loading || isStreaming) return
 
     if (!apiKey) {
       setError('请先配置 API Key')
@@ -236,65 +263,167 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
+    setIsStreaming(true)
     setError(null)
+    setStreamingContent('')
+    streamingContentRef.current = ''
+
+    // Build context
+    const rawContext = getSelectedContext()
+    const contextWithBudget = buildContextWithBudget(rawContext)
+
+    let pdfContext = ''
+    if (pdfFiles.size > 0) {
+      const pdfContexts: string[] = []
+      pdfFiles.forEach((pdf, fileName) => {
+        const maxPdfLength = 50000
+        const truncatedText = pdf.text.length > maxPdfLength
+          ? pdf.text.substring(0, maxPdfLength) + '\n...(内容已截断)'
+          : pdf.text
+        pdfContexts.push(`\n\n[PDF文件: ${fileName}]\n${truncatedText}`)
+      })
+      pdfContext = pdfContexts.join('\n')
+    }
 
     try {
-      // Build multi-note context
-      const rawContext = getSelectedContext()
-      const contextWithBudget = buildContextWithBudget(rawContext)
-
-      const answer = await api.aiChat({
-        question,
-        noteContent: currentNoteContent,
-        noteTitle: currentNoteTitle,
-        apiKey,
-        apiUrl,
-        model,
-        history: messages.map(m => ({ role: m.role, content: m.content })),
-        contextNotes: contextWithBudget,
-      })
-
-      const assistantMsg: Message = { role: 'assistant', content: answer, timestamp: Date.now() }
-      setMessages(prev => [...prev, assistantMsg])
+      const unlisten = await api.aiChatStream(
+        {
+          question,
+          noteContent: currentNoteContent + pdfContext,
+          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (含${pdfFiles.size}个PDF文件)` : ''),
+          apiKey,
+          apiUrl,
+          model,
+          history: messages.map(m => ({ role: m.role, content: m.content })),
+          contextNotes: contextWithBudget,
+        },
+        // onChunk
+        (chunk: string) => {
+          streamingContentRef.current += chunk
+          setStreamingContent(streamingContentRef.current)
+        },
+        // onDone
+        () => {
+          const finalContent = streamingContentRef.current
+          const assistantMsg: Message = { role: 'assistant', content: finalContent, timestamp: Date.now() }
+          setMessages(prev => [...prev, assistantMsg])
+          setStreamingContent('')
+          streamingContentRef.current = ''
+          setIsStreaming(false)
+          setLoading(false)
+          if (streamAbortRef.current) {
+            streamAbortRef.current()
+            streamAbortRef.current = null
+          }
+        },
+        // onError
+        (errMsg: string) => {
+          setError(errMsg)
+          // If we got partial content, still save it as a message
+          const partialContent = streamingContentRef.current
+          if (partialContent) {
+            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
+            setMessages(prev => [...prev, assistantMsg])
+          }
+          setStreamingContent('')
+          streamingContentRef.current = ''
+          setIsStreaming(false)
+          setLoading(false)
+          if (streamAbortRef.current) {
+            streamAbortRef.current()
+            streamAbortRef.current = null
+          }
+        },
+      )
+      streamAbortRef.current = unlisten
     } catch (e) {
       setError(String(e))
-    } finally {
+      setIsStreaming(false)
       setLoading(false)
     }
-  }, [input, loading, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget])
+  }, [input, loading, isStreaming, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget, pdfFiles])
 
   const handleRetry = useCallback(async (msgIndex: number) => {
     const userMsg = messages[msgIndex - 1]
-    if (!userMsg || userMsg.role !== 'user') return
+    if (!userMsg || userMsg.role !== 'user' || isStreaming) return
 
     const newMessages = messages.slice(0, msgIndex)
     setMessages(newMessages)
     setLoading(true)
+    setIsStreaming(true)
     setError(null)
+    setStreamingContent('')
+    streamingContentRef.current = ''
+
+    const rawContext = getSelectedContext()
+    const contextWithBudget = buildContextWithBudget(rawContext)
+
+    let pdfContext = ''
+    if (pdfFiles.size > 0) {
+      const pdfContexts: string[] = []
+      pdfFiles.forEach((pdf, fileName) => {
+        const maxPdfLength = 50000
+        const truncatedText = pdf.text.length > maxPdfLength
+          ? pdf.text.substring(0, maxPdfLength) + '\n...(内容已截断)'
+          : pdf.text
+        pdfContexts.push(`\n\n[PDF文件: ${fileName}]\n${truncatedText}`)
+      })
+      pdfContext = pdfContexts.join('\n')
+    }
 
     try {
-      const rawContext = getSelectedContext()
-      const contextWithBudget = buildContextWithBudget(rawContext)
-
-      const answer = await api.aiChat({
-        question: userMsg.content,
-        noteContent: currentNoteContent,
-        noteTitle: currentNoteTitle,
-        apiKey,
-        apiUrl,
-        model,
-        history: newMessages.map(m => ({ role: m.role, content: m.content })),
-        contextNotes: contextWithBudget,
-      })
-
-      const assistantMsg: Message = { role: 'assistant', content: answer, timestamp: Date.now() }
-      setMessages(prev => [...prev, assistantMsg])
+      const unlisten = await api.aiChatStream(
+        {
+          question: userMsg.content,
+          noteContent: currentNoteContent + pdfContext,
+          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (含${pdfFiles.size}个PDF文件)` : ''),
+          apiKey,
+          apiUrl,
+          model,
+          history: newMessages.map(m => ({ role: m.role, content: m.content })),
+          contextNotes: contextWithBudget,
+        },
+        (chunk: string) => {
+          streamingContentRef.current += chunk
+          setStreamingContent(streamingContentRef.current)
+        },
+        () => {
+          const finalContent = streamingContentRef.current
+          const assistantMsg: Message = { role: 'assistant', content: finalContent, timestamp: Date.now() }
+          setMessages(prev => [...prev, assistantMsg])
+          setStreamingContent('')
+          streamingContentRef.current = ''
+          setIsStreaming(false)
+          setLoading(false)
+          if (streamAbortRef.current) {
+            streamAbortRef.current()
+            streamAbortRef.current = null
+          }
+        },
+        (errMsg: string) => {
+          setError(errMsg)
+          const partialContent = streamingContentRef.current
+          if (partialContent) {
+            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
+            setMessages(prev => [...prev, assistantMsg])
+          }
+          setStreamingContent('')
+          streamingContentRef.current = ''
+          setIsStreaming(false)
+          setLoading(false)
+          if (streamAbortRef.current) {
+            streamAbortRef.current()
+            streamAbortRef.current = null
+          }
+        },
+      )
+      streamAbortRef.current = unlisten
     } catch (e) {
       setError(String(e))
-    } finally {
+      setIsStreaming(false)
       setLoading(false)
     }
-  }, [messages, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget])
+  }, [messages, isStreaming, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget, pdfFiles])
 
   const handleCopy = useCallback(async (content: string, idx: number) => {
     try {
@@ -321,9 +450,83 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   }
 
   const clearChat = () => {
+    if (messages.length === 0) {
+      setMessages([])
+      setError(null)
+      return
+    }
+    setClearChatConfirm(true)
+  }
+
+  const confirmClearChat = () => {
     setMessages([])
     setError(null)
+    setClearChatConfirm(false)
+    setPdfFiles(new Map())
   }
+
+  // PDF upload and text extraction (pdfjs-dist loaded dynamically)
+  const handlePdfUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setPdfUploadLoading(true)
+    const newPdfFiles = new Map(pdfFiles)
+
+    try {
+      // Dynamic import to avoid top-level await crash
+      const pdfjsLib = await import('pdfjs-dist')
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.mjs',
+          import.meta.url
+        ).toString()
+      } catch {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = ''
+      }
+
+      for (const file of Array.from(files)) {
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+        const pages = new Map<number, string>()
+        let fullText = ''
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i)
+          const textContent = await page.getTextContent()
+          const pageText = textContent.items.map((item: any) => item.str).join(' ')
+          pages.set(i, pageText)
+          fullText += `\n[第${i}页]\n${pageText}`
+        }
+
+        newPdfFiles.set(file.name, {
+          name: file.name,
+          text: fullText.trim(),
+          pages
+        })
+      } catch (err) {
+        console.error(`Failed to parse PDF ${file.name}:`, err)
+      }
+    }
+    } catch (err) {
+      console.error('Failed to load pdfjs-dist:', err)
+    }
+
+    setPdfFiles(newPdfFiles)
+    setPdfUploadLoading(false)
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [pdfFiles])
+
+  // Remove PDF from context
+  const removePdf = useCallback((fileName: string) => {
+    setPdfFiles(prev => {
+      const next = new Map(prev)
+      next.delete(fileName)
+      return next
+    })
+  }, [])
 
   const handleOptimizePrompt = useCallback(async () => {
     const rawPrompt = input.trim()
@@ -602,7 +805,49 @@ ${rawPrompt}
           </div>
         ))}
 
-        {loading && (
+        {loading && isStreaming && streamingContent && (
+          <div className="flex justify-start">
+            <div className="bg-[#313244] rounded-lg px-3 py-2 text-sm text-[#cdd6f4] w-full">
+              <div className="ai-markdown-content break-words overflow-hidden">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    pre: ({ children, ...props }) => (
+                      <pre className="bg-[#181825] rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
+                    ),
+                    code: ({ className, children, ...props }) => {
+                      const isInline = !className
+                      if (isInline) return <code className="bg-[#45475a] px-1 py-0.5 rounded text-[#f9e2af] text-xs" {...props}>{children}</code>
+                      return <code className={className} {...props}>{children}</code>
+                    },
+                    p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
+                    ul: ({ children, ...props }) => <ul className="list-disc pl-4 mb-2" {...props}>{children}</ul>,
+                    ol: ({ children, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props}>{children}</ol>,
+                    li: ({ children, ...props }) => <li className="mb-0.5" {...props}>{children}</li>,
+                    h1: ({ children, ...props }) => <h1 className="text-base font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h1>,
+                    h2: ({ children, ...props }) => <h2 className="text-sm font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h2>,
+                    h3: ({ children, ...props }) => <h3 className="text-sm font-semibold mb-1 text-[#cba6f7]" {...props}>{children}</h3>,
+                    blockquote: ({ children, ...props }) => (
+                      <blockquote className="border-l-2 border-[#cba6f7] pl-3 my-2 text-[#a6adc8]" {...props}>{children}</blockquote>
+                    ),
+                    a: ({ children, ...props }) => <a className="text-[#89b4fa] underline" {...props}>{children}</a>,
+                    table: ({ children, ...props }) => <table className="border-collapse my-2 text-xs w-full" {...props}>{children}</table>,
+                    th: ({ children, ...props }) => <th className="border border-[#45475a] px-2 py-1 bg-[#181825] text-left" {...props}>{children}</th>,
+                    td: ({ children, ...props }) => <td className="border border-[#45475a] px-2 py-1" {...props}>{children}</td>,
+                  }}
+                >
+                  {streamingContent}
+                </ReactMarkdown>
+              </div>
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-[#45475a]/50">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#a6e3a1] animate-pulse" />
+                <span className="text-[10px] text-[#6c7086]">正在生成...</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loading && (!isStreaming || !streamingContent) && (
           <div className="flex justify-start">
             <div className="bg-[#313244] rounded-lg px-3 py-2 text-sm text-[#a6adc8]">
               <span className="inline-flex gap-1">
@@ -667,29 +912,86 @@ ${rawPrompt}
         </div>
       )}
 
+      {/* PDF Files Context */}
+      {pdfFiles.size > 0 && (
+        <div className="px-3 py-2 border-t border-[#313244] bg-[#181825]">
+          <div className="text-xs text-[#6c7086] mb-1">PDF文件上下文:</div>
+          <div className="flex flex-wrap gap-1">
+            {Array.from(pdfFiles.entries()).map(([fileName, pdf]) => (
+              <div key={fileName} className="flex items-center gap-1 px-2 py-1 bg-[#313244] rounded text-xs">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14,2 14,8 20,8" />
+                </svg>
+                <span className="text-[#cdd6f4]">{fileName}</span>
+                <span className="text-[#6c7086]">({pdf.pages.size}页)</span>
+                <button
+                  onClick={() => removePdf(fileName)}
+                  className="ml-1 text-[#6c7086] hover:text-[#f38ba8]"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input */}
       <div className="px-3 py-2 border-t border-[#313244]">
         <div className="flex gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              // 实时调整高度
-              const el = e.target;
-              el.style.height = 'auto';
-              el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`; // 最小4行(96px)，最大15行(360px)
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask about your notes..."
-            className="flex-1 px-3 py-2 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
-            style={{
-              height: '96px', // 默认4行高度
-              minHeight: '96px', // 最小4行
-              maxHeight: '360px', // 最大15行
-            }}
-            disabled={loading || optimizing}
-          />
+          <div className="flex-1 relative">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // 实时调整高度
+                const el = e.target;
+                el.style.height = 'auto';
+                el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`; // 最小4行(96px)，最大15行(360px)
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about your notes or PDF files..."
+              className="w-full px-3 py-2 pr-10 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
+              style={{
+                height: '96px', // 默认4行高度
+                minHeight: '96px', // 最小4行
+                maxHeight: '360px', // 最大15行
+              }}
+              disabled={loading || optimizing}
+            />
+            {/* PDF upload button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={pdfUploadLoading}
+              className="absolute bottom-2 right-2 p-1.5 text-[#6c7086] hover:text-[#89b4fa] hover:bg-[#45475a] rounded transition-colors"
+              title="上传PDF文件"
+            >
+              {pdfUploadLoading ? (
+                <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 11-6.219-8.56" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14,2 14,8 20,8" />
+                  <line x1="12" y1="18" x2="12" y2="12" />
+                  <polyline points="9,15 12,12 15,15" />
+                </svg>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              multiple
+              onChange={handlePdfUpload}
+              className="hidden"
+            />
+          </div>
           <div className="flex flex-col gap-1">
             <button
               onClick={handleOptimizePrompt}
@@ -703,21 +1005,59 @@ ${rawPrompt}
                 <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>优化</>
               )}
             </button>
-            <button
-              onClick={handleSend}
-              disabled={loading || optimizing || !input.trim()}
-              className="self-end px-3 py-1.5 bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-              </svg>
-            </button>
+            {isStreaming ? (
+              <button
+                onClick={() => {
+                  // Stop streaming: save partial content and cleanup
+                  const partialContent = streamingContentRef.current
+                  if (partialContent) {
+                    const assistantMsg: Message = { role: 'assistant', content: partialContent, timestamp: Date.now() }
+                    setMessages(prev => [...prev, assistantMsg])
+                  }
+                  setStreamingContent('')
+                  streamingContentRef.current = ''
+                  setIsStreaming(false)
+                  setLoading(false)
+                  if (streamAbortRef.current) {
+                    streamAbortRef.current()
+                    streamAbortRef.current = null
+                  }
+                }}
+                className="self-end px-3 py-1.5 bg-[#f38ba8] text-[#1e1e2e] rounded hover:bg-[#eba0ac] transition-colors"
+                title="停止生成"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={loading || optimizing || !input.trim()}
+                className="self-end px-3 py-1.5 bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
         <div className="text-[10px] text-[#6c7086] mt-1">
-          Enter to send, Shift+Enter for new line
+          Enter to send, Shift+Enter for new line | 点击 📎 上传PDF文件
         </div>
       </div>
+
+      {/* Confirm Dialog for clearing chat */}
+      <ConfirmDialog
+        isOpen={clearChatConfirm}
+        title="清空聊天记录"
+        message="确定要清空所有聊天记录吗？清空后无法恢复。"
+        confirmLabel="确认清空"
+        variant="warning"
+        onConfirm={confirmClearChat}
+        onCancel={() => setClearChatConfirm(false)}
+      />
     </div>
   )
 }

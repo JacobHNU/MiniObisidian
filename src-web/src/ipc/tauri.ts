@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 export interface NoteMeta {
   id: string
@@ -109,6 +110,10 @@ export const saveAttachment = (filename: string, dataBase64: string) =>
 export const readAttachment = (relativePath: string) =>
   invoke<string>('read_attachment', { relativePath })
 
+// Read a file from the vault and return raw base64 (without data URI prefix)
+export const readFileBase64 = (relativePath: string) =>
+  invoke<string>('read_file_base64', { relativePath })
+
 // AI Chat
 export interface ChatMessage {
   role: 'user' | 'assistant'
@@ -134,6 +139,45 @@ export interface AiChatRequest {
 
 export const aiChat = (request: AiChatRequest) =>
   invoke<string>('ai_chat', { request })
+
+// AI Streaming Chat
+export type AiStreamEventType =
+  | { type: 'chunk'; content: string }
+  | { type: 'done' }
+  | { type: 'error'; message: string }
+
+/**
+ * Start a streaming AI chat request.
+ * Returns an unlisten function to cancel the stream.
+ */
+export async function aiChatStream(
+  request: AiChatRequest,
+  onChunk: (content: string) => void,
+  onDone: () => void,
+  onError: (message: string) => void,
+): Promise<UnlistenFn> {
+  const unlisten = await listen<AiStreamEventType>('ai-stream-event', (event) => {
+    const data = event.payload
+    switch (data.type) {
+      case 'chunk':
+        onChunk(data.content)
+        break
+      case 'done':
+        onDone()
+        break
+      case 'error':
+        onError(data.message)
+        break
+    }
+  })
+
+  // Fire the invoke (don't await - it runs in background, events arrive via listener)
+  invoke('ai_chat_stream', { request }).catch((err) => {
+    onError(String(err))
+  })
+
+  return unlisten
+}
 
 // Sync
 export interface SyncStatus {
@@ -178,3 +222,48 @@ export const runSync = (syncTarget: string) =>
 
 export const getSyncChanges = (syncTarget: string) =>
   invoke<FileChange[]>('get_sync_changes', { syncTarget })
+
+// Search
+export interface SearchResult {
+  noteId: string
+  title: string
+  path: string
+  snippet: string
+  score: number
+}
+
+export const searchNotes = (query: string, limit?: number) =>
+  invoke<SearchResult[]>('search_notes', { query, limit: limit || null })
+
+export const initSearchIndex = () =>
+  invoke<number>('init_search_index')
+
+export const updateSearchIndexForNote = (noteId: string) =>
+  invoke<void>('update_search_index_for_note', { noteId })
+
+// Backlinks
+export interface BacklinkInfo {
+  noteId: string
+  noteTitle: string
+  notePath: string
+  context: string
+}
+
+export const getBacklinks = (noteId: string) =>
+  invoke<BacklinkInfo[]>('get_backlinks', { noteId })
+
+// Error Reporting
+export const reportError = (
+  errorType: string,
+  message: string,
+  stack?: string,
+  context?: string,
+  source?: string
+) =>
+  invoke<void>('report_error', {
+    errorType,
+    message,
+    stack: stack || null,
+    context: context || null,
+    source: source || null,
+  })
