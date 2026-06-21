@@ -9,6 +9,7 @@ import SyncPanel from './components/Sync/SyncPanel'
 import BacklinksPanel from './components/Backlinks/BacklinksPanel'
 import TabBar, { Tab } from './components/TabBar/TabBar'
 import ExportPDFDialog, { ExportOptions } from './components/PDF/ExportPDFDialog'
+import SettingsPanel from './components/Settings/SettingsPanel'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
 
@@ -67,6 +68,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [aiPrefillText, setAiPrefillText] = useState<string | undefined>(undefined)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [exportPdfDialog, setExportPdfDialog] = useState<{ isOpen: boolean; noteTitle: string; noteContent: string }>({
@@ -104,6 +107,7 @@ export default function App() {
     createNote,
     updateNote,
     deleteNote,
+    renameNote,
     refreshNotes,
     refreshFolders,
   } = useNotes(vaultReady)
@@ -400,15 +404,45 @@ export default function App() {
   }, [refreshNotes, tabs])
 
   const handleRenameNote = useCallback(async (noteId: string, newTitle: string) => {
+    // Capture old tab title for potential revert
+    const oldTab = tabs.find(t => t.id === noteId)
+    // Capture old content for potential revert
+    const oldContent = tabContentsRef.current[noteId]?.content
+    // Optimistic update: update tab title immediately (sync with sidebar rename)
+    setTabs(prev => prev.map(t => t.id === noteId ? { ...t, title: newTitle } : t))
     try {
-      await api.renameNote(noteId, newTitle)
-      await refreshNotes()
-      // Update tab title
-      setTabs(prev => prev.map(t => t.id === noteId ? { ...t, title: newTitle } : t))
+      const updated = await renameNote(noteId, newTitle)
+      // Sync tab content with backend to prevent auto-save from overwriting the new title
+      // Cancel any pending auto-save first
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      // Read the updated file content (with new title in frontmatter)
+      try {
+        const freshContent = await api.readNoteByPath(updated.path)
+        setTabContents(prev => ({
+          ...prev,
+          [noteId]: { ...prev[noteId], content: freshContent },
+        }))
+      } catch (readErr) {
+        console.error('Failed to read updated note content:', readErr)
+      }
     } catch (e) {
       console.error('Failed to rename note:', e)
+      // Revert tab title on failure
+      if (oldTab) {
+        setTabs(prev => prev.map(t => t.id === noteId ? { ...t, title: oldTab.title } : t))
+      }
+      // Revert tab content on failure
+      if (oldContent != null) {
+        setTabContents(prev => ({
+          ...prev,
+          [noteId]: { ...prev[noteId], content: oldContent },
+        }))
+      }
     }
-  }, [refreshNotes])
+  }, [renameNote, tabs])
 
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
@@ -429,13 +463,63 @@ export default function App() {
   const handleDeleteFolder = useCallback(async (folderPath: string) => {
     try {
       await api.deleteFolder(folderPath)
+      // Close tabs that belong to the deleted folder
+      const prefix = folderPath + '/'
+      const tabsToClose = tabs.filter(t => t.filePath.startsWith(prefix))
+      for (const tab of tabsToClose) {
+        await handleTabClose(tab.id)
+      }
       await refreshNotes()
       await refreshFolders()
+      setToast({ message: '文件夹已删除', type: 'success' })
     } catch (e) {
       console.error('Failed to delete folder:', e)
       setToast({ message: '删除文件夹失败：' + String(e), type: 'error' })
     }
-  }, [refreshNotes, refreshFolders])
+  }, [tabs, handleTabClose, refreshNotes, refreshFolders])
+
+  // Send selected PDF text to AI Q&A panel
+  const handleSendToAI = useCallback((text: string) => {
+    setAiPrefillText(text)
+    setAiPanelOpen(true)
+  }, [])
+
+  // Write AI response content to an existing note (append)
+  const handleWriteToNote = useCallback(async (noteId: string, content: string) => {
+    const currentTabContent = tabContentsRef.current[noteId]
+    if (currentTabContent) {
+      const newContent = currentTabContent.content + content
+      setTabContents(prev => ({
+        ...prev,
+        [noteId]: { ...prev[noteId], content: newContent },
+      }))
+      try {
+        await api.updateNote(noteId, newContent)
+      } catch (e) {
+        console.error('Failed to write to note:', e)
+        setToast({ message: '写入笔记失败：' + String(e), type: 'error' })
+      }
+    }
+  }, [setToast])
+
+  // Create a new note from AI response
+  const handleCreateNoteFromAI = useCallback(async (title: string, content: string) => {
+    try {
+      const note = await createNote(title, content, 'inbox', [])
+      await refreshNotes()
+      const fullContent = await api.readNoteByPath(note.path)
+      const newTab: Tab = { id: note.id, title, filePath: note.path }
+      setTabs(prev => [...prev, newTab])
+      setActiveTabId(note.id)
+      setTabContents(prev => ({
+        ...prev,
+        [note.id]: { content: fullContent, filePath: note.path },
+      }))
+    } catch (e) {
+      console.error('Failed to create note from AI:', e)
+      setToast({ message: '创建笔记失败：' + String(e), type: 'error' })
+    }
+  }, [createNote, refreshNotes, setToast])
 
   const handleMoveNote = useCallback(async (noteId: string, destPath: string) => {
     try {
@@ -601,6 +685,16 @@ export default function App() {
               </svg>
               AI
             </button>
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="px-2 py-1 rounded text-xs font-medium transition-colors text-[#a6adc8] hover:bg-[#313244]"
+              title="Settings"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -635,6 +729,8 @@ export default function App() {
                   onWikiLinkClick={handleWikiLinkClick}
                   isPdf={tabContents[activeTabId]?.isPdf}
                   pdfDataUrl={tabContents[activeTabId]?.pdfDataUrl}
+                  onSendToAI={handleSendToAI}
+                  onToast={(msg, type) => setToast({ message: msg, type })}
                 />
               </div>
               <BacklinksPanel
@@ -657,7 +753,8 @@ export default function App() {
       {/* AI Panel */}
       <AIPanel
         isOpen={aiPanelOpen}
-        onClose={() => setAiPanelOpen(false)}
+        onClose={() => { setAiPanelOpen(false); setAiPrefillText(undefined) }}
+        currentNoteId={activeTabId}
         currentNoteContent={currentContent}
         currentNoteTitle={currentNote?.title || ''}
         openNotes={tabs.map(tab => ({
@@ -666,6 +763,10 @@ export default function App() {
           content: tabContents[tab.id]?.content || '',
           isActive: tab.id === activeTabId,
         }))}
+        prefillText={aiPrefillText}
+        onWriteToNote={handleWriteToNote}
+        onCreateNoteFromAI={handleCreateNoteFromAI}
+        onToast={(msg, type) => setToast({ message: msg, type })}
       />
 
       {/* Sync Panel */}
@@ -685,6 +786,12 @@ export default function App() {
           setExportPdfDialog({ isOpen: false, noteTitle: '', noteContent: '' })
         }}
         onClose={() => setExportPdfDialog({ isOpen: false, noteTitle: '', noteContent: '' })}
+      />
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
 
       {/* Toast Notification */}

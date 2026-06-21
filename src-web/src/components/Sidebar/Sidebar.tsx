@@ -66,6 +66,9 @@ export default function Sidebar({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renamingNoteId, setRenamingNoteId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const renamingNoteIdRef = useRef<string | null>(null)
+  const renameValueRef = useRef('')
+  const localTitlesRef = useRef<Map<string, string>>(new Map())
   const folderInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
 
@@ -112,6 +115,19 @@ export default function Sidebar({
       renameInputRef.current.select()
     }
   }, [renamingNoteId])
+
+  // Clear optimistic local titles when notes prop updates from backend
+  useEffect(() => {
+    if (localTitlesRef.current.size > 0) {
+      // Check if backend titles match local optimistic titles
+      for (const [id, localTitle] of localTitlesRef.current) {
+        const note = notes.find(n => n.id === id)
+        if (note && note.title === localTitle) {
+          localTitlesRef.current.delete(id)
+        }
+      }
+    }
+  }, [notes])
 
   const filteredNotes = useMemo(() => {
     if (!filter) return notes
@@ -302,21 +318,38 @@ export default function Sidebar({
   }
 
   const startRename = (noteId: string, currentTitle: string) => {
+    // Save any pending rename before switching
+    const pendingId = renamingNoteIdRef.current
+    const pendingValue = renameValueRef.current
+    if (pendingId && pendingValue.trim() && pendingId !== noteId) {
+      onRenameNote(pendingId, pendingValue.trim())
+    }
+    renamingNoteIdRef.current = noteId
+    renameValueRef.current = currentTitle || 'Untitled'
     setRenamingNoteId(noteId)
     setRenameValue(currentTitle || 'Untitled')
     setContextMenu(null)
   }
 
   const confirmRename = () => {
-    if (renamingNoteId && renameValue.trim()) {
-      onRenameNote(renamingNoteId, renameValue.trim())
+    const currentId = renamingNoteIdRef.current
+    const currentValue = renameValueRef.current
+    if (currentId && currentValue.trim()) {
+      const trimmed = currentValue.trim()
+      // Optimistic update: store the new title locally so it displays immediately
+      localTitlesRef.current.set(currentId, trimmed)
+      onRenameNote(currentId, trimmed)
     }
-    setRenamingNoteId(null); setRenameValue('')
+    renamingNoteIdRef.current = null
+    renameValueRef.current = ''
+    setRenamingNoteId(null)
+    setRenameValue('')
   }
 
   const renderNoteItem = (note: NoteMeta, paddingLeft: number) => {
     const isRenaming = renamingNoteId === note.id
-    const displayTitle = note.title || note.path.split('/').pop()?.replace(/\.(md|pdf)$/i, '') || 'Untitled'
+    const localTitle = localTitlesRef.current.get(note.id)
+    const displayTitle = localTitle || note.title || note.path.split('/').pop()?.replace(/\.(md|pdf)$/i, '') || 'Untitled'
     const isDragging = dragState.draggedNoteId === note.id
     const isPdf = note.path.toLowerCase().endsWith('.pdf')
 
@@ -406,10 +439,10 @@ export default function Sidebar({
             ref={renameInputRef}
             type="text"
             value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
+            onChange={(e) => { setRenameValue(e.target.value); renameValueRef.current = e.target.value }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') confirmRename()
-              if (e.key === 'Escape') { setRenamingNoteId(null); setRenameValue('') }
+              if (e.key === 'Escape') { renamingNoteIdRef.current = null; renameValueRef.current = ''; setRenamingNoteId(null); setRenameValue('') }
             }}
             onBlur={confirmRename}
             onClick={(e) => e.stopPropagation()}
@@ -554,6 +587,22 @@ export default function Sidebar({
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
                 Show in Folder
+              </button>
+              <div className="border-t border-[#45475a] my-1" />
+              <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
+                onClick={() => {
+                  if (contextMenu.folderPath) {
+                    setConfirmDialog({
+                      isOpen: true,
+                      title: '删除文件夹',
+                      message: `确定要删除「${contextMenu.folderPath}」文件夹及其所有笔记吗？文件夹内的笔记将移入回收站，可在 .vault/trash 中找回。`,
+                      onConfirm: () => { onDeleteFolder(contextMenu.folderPath!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
+                    })
+                  }
+                  setContextMenu(null)
+                }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
+                Delete Folder
               </button>
             </>
           )}

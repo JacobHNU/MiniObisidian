@@ -20,7 +20,7 @@ const catppuccinTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
     color: '#cdd6f4',
-    fontSize: '15px',
+    fontSize: 'var(--editor-font-size, 15px)',
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
   },
   '.cm-content': {

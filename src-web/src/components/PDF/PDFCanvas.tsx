@@ -24,9 +24,11 @@ async function loadPdfjsLib() {
 
 interface PDFCanvasProps {
   base64Data: string  // raw base64, no data: prefix
+  onSendToAI?: (text: string) => void
+  onToast?: (message: string, type: 'success' | 'error') => void
 }
 
-export default function PDFCanvas({ base64Data }: PDFCanvasProps) {
+export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvasProps) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [scale, setScale] = useState(1.2)
@@ -40,6 +42,10 @@ export default function PDFCanvas({ base64Data }: PDFCanvasProps) {
   const textLayerTasksRef = useRef<Map<number, { cancel: () => void }>>(new Map())
   const pdfRef = useRef<PDFDocumentProxy | null>(null)
   const scaleRef = useRef<number>(scale)
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; text: string } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { pdfRef.current = pdf }, [pdf])
   useEffect(() => { scaleRef.current = scale }, [scale])
@@ -223,6 +229,76 @@ export default function PDFCanvas({ base64Data }: PDFCanvasProps) {
   const zoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5))
   const resetZoom = () => setScale(1.2)
 
+  // Right-click context menu handler
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim() || ''
+    if (!selectedText) {
+      setContextMenu(null)
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+
+    // Calculate position ensuring menu stays within viewport
+    const menuWidth = 180
+    const menuHeight = 88
+    const padding = 8
+    let x = e.clientX
+    let y = e.clientY
+    if (x + menuWidth > window.innerWidth - padding) {
+      x = window.innerWidth - menuWidth - padding
+    }
+    if (y + menuHeight > window.innerHeight - padding) {
+      y = window.innerHeight - menuHeight - padding
+    }
+
+    setContextMenu({ x, y, text: selectedText })
+  }, [])
+
+  // Close context menu on click outside or scroll
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    document.addEventListener('click', close)
+    document.addEventListener('scroll', close, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('click', close)
+      document.removeEventListener('scroll', close, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [contextMenu])
+
+  // Copy selected text to clipboard
+  const handleCopy = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      onToast?.('已复制到剪贴板', 'success')
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      onToast?.('已复制到剪贴板', 'success')
+    }
+    setContextMenu(null)
+  }, [onToast])
+
+  // Send selected text to AI Q&A
+  const handleSendToAI = useCallback((text: string) => {
+    onSendToAI?.(text)
+    setContextMenu(null)
+  }, [onSendToAI])
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-[#11111b]">
@@ -314,7 +390,7 @@ export default function PDFCanvas({ base64Data }: PDFCanvasProps) {
       </div>
 
       {/* Pages */}
-      <div ref={containerRef} className="flex-1 overflow-y-auto bg-[#11111b] p-4">
+      <div ref={containerRef} className="flex-1 overflow-y-auto bg-[#11111b] p-4" onContextMenu={handleContextMenu}>
         <div className="flex flex-col items-center gap-4">
           {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
             <div
@@ -338,6 +414,48 @@ export default function PDFCanvas({ base64Data }: PDFCanvasProps) {
           ))}
         </div>
       </div>
+
+      {/* Custom context menu */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          data-custom-context-menu
+          className="fixed z-[100] bg-[#313244] border border-[#45475a] rounded-lg shadow-2xl py-1 min-w-[160px]"
+          style={{
+            left: contextMenu.x,
+            top: contextMenu.y,
+            animation: 'contextMenuFadeIn 0.12s ease-out',
+          }}
+          onClick={e => e.stopPropagation()}
+          onContextMenu={e => e.preventDefault()}
+        >
+          <style>{`
+            @keyframes contextMenuFadeIn {
+              from { opacity: 0; transform: scale(0.95); }
+              to { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
+          <button
+            className="w-full px-3 py-2 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
+            onClick={() => handleCopy(contextMenu.text)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+            </svg>
+            复制
+          </button>
+          <button
+            className="w-full px-3 py-2 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
+            onClick={() => handleSendToAI(contextMenu.text)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+            </svg>
+            发送到AI问答
+          </button>
+        </div>
+      )}
     </div>
   )
 }

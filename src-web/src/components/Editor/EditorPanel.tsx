@@ -2,10 +2,14 @@ import { useRef, useEffect, useMemo, useState, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkFrontmatter from 'remark-frontmatter'
+import remarkMath from 'remark-math'
 import rehypeRaw from 'rehype-raw'
+import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
 import * as api from '../../ipc/tauri'
 import CodeMirrorEditor from './CodeMirrorEditor'
 import PDFCanvas from '../PDF/PDFCanvas'
+import SelectionToolbar from './SelectionToolbar'
 
 interface EditorPanelProps {
   content: string
@@ -15,6 +19,8 @@ interface EditorPanelProps {
   onWikiLinkClick?: (noteTitle: string) => void
   isPdf?: boolean
   pdfDataUrl?: string
+  onSendToAI?: (text: string) => void
+  onToast?: (message: string, type: 'success' | 'error') => void
 }
 
 // Cache for resolved attachment data URIs (persists across renders)
@@ -75,10 +81,26 @@ const MarkdownImg = ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageEl
 // Custom markdown components
 const mdComponents = {
   img: MarkdownImg,
+  input: ({ checked, type, ...props }: React.InputHTMLAttributes<HTMLInputElement>) => {
+    if (type === 'checkbox') {
+      return (
+        <input
+          type="checkbox"
+          checked={checked}
+          readOnly
+          className="task-checkbox"
+          {...props}
+        />
+      )
+    }
+    return <input type={type} {...props} />
+  },
 }
 
-export default function EditorPanel({ content, onChange, viewMode, currentNoteId, onWikiLinkClick, isPdf, pdfDataUrl }: EditorPanelProps) {
+export default function EditorPanel({ content, onChange, viewMode, currentNoteId, onWikiLinkClick, isPdf, pdfDataUrl, onSendToAI, onToast }: EditorPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const previewContainerRef = useRef<HTMLDivElement>(null)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
   const [splitRatio, setSplitRatio] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
 
@@ -194,27 +216,28 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
   if (viewMode === 'preview') {
     // PDF preview mode using PDF.js
     if (isPdf && pdfDataUrl) {
-      return <PDFCanvas base64Data={pdfDataUrl} />
+      return <PDFCanvas base64Data={pdfDataUrl} onSendToAI={onSendToAI} onToast={onToast} />
     }
 
     return (
-      <div className="h-full w-full overflow-y-auto" onClick={handlePreviewClick}>
+      <div ref={previewContainerRef as React.RefObject<HTMLDivElement>} className="h-full w-full overflow-y-auto relative" onClick={handlePreviewClick}>
         <div className="p-6 markdown-preview">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkFrontmatter]}
-            rehypePlugins={[rehypeRaw]}
+            remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
+            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={mdComponents}
           >
             {previewContent}
           </ReactMarkdown>
         </div>
+        {onSendToAI && <SelectionToolbar containerRef={previewContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
       </div>
     )
   }
 
   // Split view - PDF
   if (isPdf && pdfDataUrl) {
-    return <PDFCanvas base64Data={pdfDataUrl} />
+    return <PDFCanvas base64Data={pdfDataUrl} onSendToAI={onSendToAI} onToast={onToast} />
   }
 
   return (
@@ -246,16 +269,17 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
         </div>
       </div>
 
-      <div className="overflow-y-auto overflow-x-hidden flex-1" style={{ minWidth: 0 }}>
+      <div ref={splitContainerRef as React.RefObject<HTMLDivElement>} className="overflow-y-auto overflow-x-hidden flex-1 relative" style={{ minWidth: 0 }}>
         <div className="p-6 markdown-preview">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkFrontmatter]}
-            rehypePlugins={[rehypeRaw]}
+            remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
+            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
             components={mdComponents}
           >
             {previewContent}
           </ReactMarkdown>
         </div>
+        {onSendToAI && <SelectionToolbar containerRef={splitContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
       </div>
     </div>
   )

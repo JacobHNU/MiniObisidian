@@ -67,11 +67,27 @@ export function useNotes(vaultReady: boolean = true) {
 
   const renameNote = useCallback(
     async (noteId: string, newTitle: string) => {
-      const updated = await api.renameNote(noteId, newTitle)
-      await refreshNotes()
-      return updated
+      // Capture old title for potential revert (read from current state via functional updater)
+      let oldTitle: string | undefined
+      setNotes(prev => {
+        oldTitle = prev.find(n => n.id === noteId)?.title
+        return prev.map(n => n.id === noteId ? { ...n, title: newTitle } : n)
+      })
+      try {
+        const updated = await api.renameNote(noteId, newTitle)
+        // Merge backend result into local state (no full refresh to avoid race condition
+        // with concurrent renames overwriting each other's optimistic updates)
+        setNotes(prev => prev.map(n => n.id === noteId ? { ...n, ...updated } : n))
+        return updated
+      } catch (e) {
+        // Revert only this note on failure
+        if (oldTitle != null) {
+          setNotes(prev => prev.map(n => n.id === noteId ? { ...n, title: oldTitle! } : n))
+        }
+        throw e
+      }
     },
-    [refreshNotes]
+    []
   )
 
   const moveNote = useCallback(

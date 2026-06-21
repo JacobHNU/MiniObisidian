@@ -26,15 +26,19 @@
     "framer-motion": "^11.0.0",
     "gray-matter": "^4.0.3",
     "html2pdf.js": "^0.10.2",
+    "katex": "^0.17.0",
     "lucide-react": "^0.400.0",
     "pdfjs-dist": "^4.0.379",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.0",
     "reactflow": "^11.11.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
     "remark-frontmatter": "^5.0.0",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

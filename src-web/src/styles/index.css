@@ -1,9 +1,17 @@
+/* highlight.js dark theme for code syntax highlighting */
+@import 'highlight.js/styles/github-dark.css';
+
+/* KaTeX math formula styles */
+@import 'katex/dist/katex.min.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   --sidebar-width: 280px;
+  --ui-font-size: 14px;
+  --editor-font-size: 15px;
 }
 
 * {
@@ -16,6 +24,7 @@ html {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  font-size: var(--ui-font-size);
 }
 
 body {
@@ -87,7 +96,7 @@ textarea {
 }
 
 .markdown-preview h1 {
-  font-size: 2em;
+  font-size: 1.5em;
   font-weight: 700;
   margin: 1em 0 0.5em;
   color: #cba6f7;
@@ -96,17 +105,38 @@ textarea {
 }
 
 .markdown-preview h2 {
-  font-size: 1.5em;
+  font-size: 1.3em;
   font-weight: 600;
   margin: 0.8em 0 0.4em;
-  color: #89b4fa;
+  color: #cba6f7;
 }
 
 .markdown-preview h3 {
-  font-size: 1.25em;
+  font-size: 1.15em;
   font-weight: 600;
   margin: 0.6em 0 0.3em;
-  color: #a6e3a1;
+  color: #cba6f7;
+}
+
+.markdown-preview h4 {
+  font-size: 1.05em;
+  font-weight: 600;
+  margin: 0.5em 0 0.3em;
+  color: #cba6f7;
+}
+
+.markdown-preview h5 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.5em 0 0.25em;
+  color: #cba6f7;
+}
+
+.markdown-preview h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0.5em 0 0.25em;
+  color: #cba6f7;
 }
 
 .markdown-preview p {
@@ -129,6 +159,22 @@ textarea {
   border-radius: 4px;
   font-size: 0.9em;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  color: #a6e3a1;
+}
+
+.markdown-preview strong {
+  color: #fab387;
+  font-weight: 600;
+}
+
+.markdown-preview em {
+  color: #f9e2af;
+  font-style: italic;
+}
+
+.markdown-preview del {
+  color: #6c7086;
+  text-decoration: line-through;
 }
 
 .markdown-preview pre {
@@ -142,6 +188,7 @@ textarea {
 .markdown-preview pre code {
   background: transparent;
   padding: 0;
+  color: inherit;
 }
 
 .markdown-preview blockquote {
@@ -151,13 +198,42 @@ textarea {
   color: #a6adc8;
 }
 
-.markdown-preview ul, .markdown-preview ol {
+.markdown-preview ul {
   padding-left: 1.5em;
   margin: 0.5em 0;
+  list-style-type: disc;
+}
+
+.markdown-preview ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+  list-style-type: decimal;
 }
 
 .markdown-preview li {
   margin: 0.25em 0;
+  display: list-item;
+}
+
+.markdown-preview li::marker {
+  color: #a6adc8;
+}
+
+/* Nested list styles */
+.markdown-preview ul ul {
+  list-style-type: circle;
+}
+
+.markdown-preview ul ul ul {
+  list-style-type: square;
+}
+
+.markdown-preview ol ol {
+  list-style-type: lower-alpha;
+}
+
+.markdown-preview ol ol ol {
+  list-style-type: lower-roman;
 }
 
 .markdown-preview table {
@@ -188,6 +264,270 @@ textarea {
   border: none;
   border-top: 1px solid #45475a;
   margin: 1.5em 0;
+}
+
+/* Task list (checkboxes) */
+.markdown-preview .task-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #585b70;
+  border-radius: 3px;
+  background: transparent;
+  vertical-align: middle;
+  margin-right: 6px;
+  cursor: default;
+  position: relative;
+  display: inline-block;
+}
+
+.markdown-preview .task-checkbox:checked {
+  background: #cba6f7;
+  border-color: #cba6f7;
+}
+
+.markdown-preview .task-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0px;
+  width: 5px;
+  height: 9px;
+  border: solid #1e1e2e;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.markdown-preview li:has(.task-checkbox) {
+  list-style: none;
+  margin-left: -1.5em;
+}
+
+.markdown-preview li:has(.task-checkbox.checked) {
+  color: #6c7086;
+}
+
+/* Footnotes */
+.markdown-preview .footnotes {
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid #45475a;
+  font-size: 0.9em;
+  color: #a6adc8;
+}
+
+.markdown-preview .footnotes ol {
+  padding-left: 1.5em;
+}
+
+.markdown-preview .footnotes li {
+  margin: 0.2em 0;
+}
+
+.markdown-preview .footnotes a {
+  color: #89b4fa;
+}
+
+.markdown-preview sup {
+  font-size: 0.75em;
+  vertical-align: super;
+  color: #89b4fa;
+}
+
+.markdown-preview sup a {
+  text-decoration: none;
+  color: #89b4fa;
+}
+
+.markdown-preview sup a:hover {
+  text-decoration: underline;
+}
+
+/* Math formulas (KaTeX overrides) */
+.markdown-preview .katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+.markdown-preview .katex {
+  font-size: 1.1em;
+  color: #cdd6f4;
+}
+
+.markdown-preview .katex-error {
+  color: #f38ba8;
+  font-size: 0.9em;
+}
+
+/* Definition lists */
+.markdown-preview dl {
+  margin: 0.5em 0;
+}
+
+.markdown-preview dt {
+  font-weight: 600;
+  color: #cba6f7;
+  margin-top: 0.5em;
+}
+
+.markdown-preview dd {
+  margin-left: 1.5em;
+  margin-bottom: 0.5em;
+  color: #a6adc8;
+}
+
+/* Mark/highlight text (==text== rendered as <mark>) */
+.markdown-preview mark {
+  background: #f9e2af33;
+  color: #f9e2af;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+/* Subscript and superscript */
+.markdown-preview sub {
+  font-size: 0.75em;
+  vertical-align: sub;
+}
+
+/* Keyboard keys */
+.markdown-preview kbd {
+  background: #313244;
+  border: 1px solid #585b70;
+  border-radius: 4px;
+  padding: 0.1em 0.4em;
+  font-size: 0.85em;
+  font-family: 'JetBrains Mono', monospace;
+  color: #cdd6f4;
+  box-shadow: 0 1px 0 #585b70;
+}
+
+/* Abbreviations */
+.markdown-preview abbr[title] {
+  text-decoration: underline dotted #585b70;
+  cursor: help;
+}
+
+/* Table alignment */
+.markdown-preview td[align="center"],
+.markdown-preview th[align="center"] {
+  text-align: center;
+}
+
+.markdown-preview td[align="right"],
+.markdown-preview th[align="right"] {
+  text-align: right;
+}
+
+/* Table row hover */
+.markdown-preview tr:hover td {
+  background: #31324480;
+}
+
+/* Blockquote nested */
+.markdown-preview blockquote blockquote {
+  margin: 0.5em 0;
+  border-left-color: #585b70;
+}
+
+/* Code block language label */
+.markdown-preview pre > code::before {
+  content: none;
+}
+
+/* Image link */
+.markdown-preview a img {
+  border-color: #89b4fa;
+}
+
+/* ── Light Theme ───────────────────────────────────────────────── */
+.light-theme body,
+.light-theme {
+  background: #eff1f5;
+  color: #4c4f69;
+}
+
+.light-theme .bg-\[#1e1e2e\] { background: #eff1f5; }
+.light-theme .bg-\[#181825\] { background: #e6e9ef; }
+.light-theme .bg-\[#11111b\] { background: #dce0e8; }
+.light-theme .bg-\[#313244\] { background: #ccd0da; }
+.light-theme .bg-\[#313244\]\/50 { background: rgba(204, 208, 218, 0.5); }
+.light-theme .bg-\[#45475a\] { background: #bcc0cc; }
+.light-theme .border-\[#313244\] { border-color: #ccd0da; }
+.light-theme .border-\[#45475a\] { border-color: #bcc0cc; }
+.light-theme .text-\[#cdd6f4\] { color: #4c4f69; }
+.light-theme .text-\[#a6adc8\] { color: #6c6f85; }
+.light-theme .text-\[#6c7086\] { color: #9ca0b0; }
+.light-theme .text-\[#89b4fa\] { color: #1e66f5; }
+.light-theme .text-\[#cba6f7\] { color: #8839ef; }
+.light-theme .text-\[#f38ba8\] { color: #d20f39; }
+.light-theme .text-\[#f9e2af\] { color: #df8e1d; }
+.light-theme .text-\[#a6e3a1\] { color: #40a02b; }
+.light-theme .text-\[#fab387\] { color: #fe640b; }
+.light-theme .hover\:bg-\[#313244\]:hover { background: #ccd0da; }
+.light-theme .hover\:bg-\[#45475a\]:hover { background: #bcc0cc; }
+.light-theme .hover\:text-\[#cdd6f4\]:hover { color: #4c4f69; }
+.light-theme .bg-\[#cba6f7\] { background: #8839ef; }
+.light-theme .bg-\[#f38ba8\] { background: #d20f39; }
+.light-theme .bg-\[#89b4fa\] { background: #1e66f5; }
+.light-theme .text-\[#1e1e2e\] { color: #eff1f5; }
+.light-theme .text-\[#5c5f77\] { color: #5c5f77; }
+.light-theme .border-\[#cba6f7\] { border-color: #8839ef; }
+.light-theme .divide-\[#313244\] > :not([hidden]) ~ :not([hidden]) { border-color: #ccd0da; }
+
+/* Light theme markdown preview */
+.light-theme .markdown-preview { color: #4c4f69; }
+.light-theme .markdown-preview h1,
+.light-theme .markdown-preview h2,
+.light-theme .markdown-preview h3,
+.light-theme .markdown-preview h4,
+.light-theme .markdown-preview h5,
+.light-theme .markdown-preview h6 { color: #8839ef; }
+.light-theme .markdown-preview strong { color: #fe640b; }
+.light-theme .markdown-preview em { color: #df8e1d; }
+.light-theme .markdown-preview del { color: #9ca0b0; }
+.light-theme .markdown-preview code { color: #40a02b; background: #ccd0da; }
+.light-theme .markdown-preview pre { background: #dce0e8; border-color: #bcc0cc; }
+.light-theme .markdown-preview pre code { color: #4c4f69; background: transparent; }
+.light-theme .markdown-preview a { color: #1e66f5; }
+.light-theme .markdown-preview blockquote { border-left-color: #8839ef; color: #6c6f85; }
+.light-theme .markdown-preview hr { border-color: #ccd0da; }
+.light-theme .markdown-preview table { border-color: #bcc0cc; }
+.light-theme .markdown-preview th { background: #ccd0da; border-color: #bcc0cc; color: #4c4f69; }
+.light-theme .markdown-preview td { border-color: #bcc0cc; }
+.light-theme .markdown-preview tr:hover td { background: rgba(204, 208, 218, 0.4); }
+.light-theme .markdown-preview img { border-color: #bcc0cc; }
+.light-theme .markdown-preview mark { background: #df8e1d33; color: #df8e1d; }
+.light-theme .markdown-preview kbd { background: #ccd0da; border-color: #bcc0cc; color: #4c4f69; box-shadow: 0 1px 0 #bcc0cc; }
+.light-theme .markdown-preview .katex { color: #4c4f69; }
+.light-theme .markdown-preview .task-checkbox { border-color: #9ca0b0; background: #eff1f5; }
+.light-theme .markdown-preview .task-checkbox:checked { background: #8839ef; border-color: #8839ef; }
+.light-theme .markdown-preview .task-checkbox:checked::after { border-color: #eff1f5; }
+.light-theme .markdown-preview dt { color: #8839ef; }
+.light-theme .markdown-preview dd { color: #6c6f85; }
+.light-theme .markdown-preview blockquote blockquote { border-left-color: #bcc0cc; }
+.light-theme .markdown-preview a img { border-color: #1e66f5; }
+
+/* Light theme scrollbar */
+.light-theme ::-webkit-scrollbar-thumb { background: #bcc0cc; }
+.light-theme ::-webkit-scrollbar-thumb:hover { background: #9ca0b0; }
+.light-theme ::-webkit-scrollbar-track { background: #e6e9ef; }
+
+.markdown-preview a img:hover {
+  border-color: #b4befe;
+}
+
+/* Empty paragraph protection */
+.markdown-preview p:empty {
+  display: none;
+}
+
+/* List item paragraph */
+.markdown-preview li > p {
+  margin: 0.2em 0;
 }
 
 /* Wiki link highlight */

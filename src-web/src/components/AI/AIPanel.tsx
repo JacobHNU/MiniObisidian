@@ -24,9 +24,14 @@ export interface OpenNote {
 interface AIPanelProps {
   isOpen: boolean
   onClose: () => void
+  currentNoteId?: string | null
   currentNoteContent: string
   currentNoteTitle: string
   openNotes: OpenNote[]
+  prefillText?: string
+  onWriteToNote?: (noteId: string, content: string) => void
+  onCreateNoteFromAI?: (title: string, content: string) => void
+  onToast?: (message: string, type: 'success' | 'error') => void
 }
 
 const MIN_WIDTH = 320
@@ -35,7 +40,7 @@ const MAX_WIDTH = 800
 const CHARS_PER_TOKEN = 2.5
 const MAX_CONTEXT_TOKENS = 12000
 
-export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNoteTitle, openNotes }: AIPanelProps) {
+export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteContent, currentNoteTitle, openNotes, prefillText, onWriteToNote, onCreateNoteFromAI, onToast }: AIPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -68,6 +73,48 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   const [pdfUploadLoading, setPdfUploadLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Per-note AI history
+  const historyNoteIdRef = useRef<string | null>(null) // Which note's history is currently loaded
+  const [historyCount, setHistoryCount] = useState(0) // Number of saved history entries for current note
+
+  // History localStorage helpers
+  const getHistoryKey = (noteId: string) => `ai_history_${noteId}`
+
+  const saveHistory = useCallback((noteId: string, msgs: Message[]) => {
+    if (!noteId || msgs.length === 0) return
+    try {
+      localStorage.setItem(getHistoryKey(noteId), JSON.stringify(msgs))
+    } catch (e) {
+      console.error('Failed to save AI history:', e)
+    }
+  }, [])
+
+  const loadHistory = useCallback((noteId: string): Message[] => {
+    if (!noteId) return []
+    try {
+      const data = localStorage.getItem(getHistoryKey(noteId))
+      if (data) {
+        const parsed = JSON.parse(data)
+        if (Array.isArray(parsed)) return parsed as Message[]
+      }
+    } catch (e) {
+      console.error('Failed to load AI history:', e)
+    }
+    return []
+  }, [])
+
+  const getHistoryCount = useCallback((noteId: string): number => {
+    if (!noteId) return 0
+    try {
+      const data = localStorage.getItem(getHistoryKey(noteId))
+      if (data) {
+        const parsed = JSON.parse(data)
+        if (Array.isArray(parsed)) return parsed.length
+      }
+    } catch { /* ignore */ }
+    return 0
+  }, [])
+
   // Auto-select active note when openNotes changes
   useEffect(() => {
     setSelectedNoteIds(prev => {
@@ -97,6 +144,61 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     if (savedMaxTokens) setMaxTokens(Number(savedMaxTokens))
   }, [])
 
+  // Update history count when currentNoteId changes
+  useEffect(() => {
+    if (currentNoteId) {
+      setHistoryCount(getHistoryCount(currentNoteId))
+    } else {
+      setHistoryCount(0)
+    }
+  }, [currentNoteId, getHistoryCount])
+
+  // Handle note switching: save old note's history, load new note's history
+  useEffect(() => {
+    if (!currentNoteId) return
+
+    // If we already have messages loaded for a different note, save them first
+    const prevNoteId = historyNoteIdRef.current
+    if (prevNoteId && prevNoteId !== currentNoteId && messages.length > 0) {
+      saveHistory(prevNoteId, messages)
+    }
+
+    // Load the new note's history
+    const history = loadHistory(currentNoteId)
+    if (history.length > 0) {
+      setMessages(history)
+    } else {
+      setMessages([])
+    }
+    historyNoteIdRef.current = currentNoteId
+    setError(null)
+  }, [currentNoteId]) // Intentionally only depend on currentNoteId
+
+  // Save current messages explicitly (called after message exchange completes)
+  const handleSaveCurrentHistory = useCallback(() => {
+    if (currentNoteId && messages.length > 0) {
+      saveHistory(currentNoteId, messages)
+      setHistoryCount(messages.length)
+    }
+  }, [currentNoteId, messages, saveHistory])
+
+  // Load history for the current note (explicit user action)
+  const handleLoadHistory = useCallback(() => {
+    if (!currentNoteId) {
+      if (onToast) onToast('没有关联的笔记，无法加载历史记录', 'error')
+      return
+    }
+    const history = loadHistory(currentNoteId)
+    if (history.length === 0) {
+      if (onToast) onToast('当前笔记暂无AI对话历史记录', 'success')
+      return
+    }
+    setMessages(history)
+    historyNoteIdRef.current = currentNoteId
+    setError(null)
+    if (onToast) onToast(`已加载 ${history.length} 条历史对话`, 'success')
+  }, [currentNoteId, loadHistory, onToast])
+
   // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -116,19 +218,35 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
-      // 初始化时调整高度（最小4行）
+      // 初始化时调整高度（最小3行）
       const el = inputRef.current;
       el.style.height = 'auto';
-      el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`;
+      el.style.height = `${Math.max(72, Math.min(el.scrollHeight, 360))}px`;
     }
   }, [isOpen]);
+
+  // Prefill input when prefillText is set
+  useEffect(() => {
+    if (prefillText && isOpen) {
+      setInput(prefillText)
+      // Focus and adjust height after prefill
+      requestAnimationFrame(() => {
+        if (inputRef.current) {
+          inputRef.current.focus()
+          const el = inputRef.current
+          el.style.height = 'auto'
+          el.style.height = `${Math.max(72, Math.min(el.scrollHeight, 360))}px`
+        }
+      })
+    }
+  }, [prefillText, isOpen])
 
   // 当输入内容变化时调整高度
   useEffect(() => {
     if (inputRef.current) {
       const el = inputRef.current;
       el.style.height = 'auto';
-      el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`;
+      el.style.height = `${Math.max(72, Math.min(el.scrollHeight, 360))}px`;
     }
   }, [input]);
 
@@ -268,6 +386,10 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     setStreamingContent('')
     streamingContentRef.current = ''
 
+    // Capture for explicit save after exchange completes
+    const noteIdForSave = currentNoteId
+    const messagesBeforeExchange = messages // closure snapshot (does NOT include userMsg)
+
     // Build context
     const rawContext = getSelectedContext()
     const contextWithBudget = buildContextWithBudget(rawContext)
@@ -315,6 +437,12 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
             streamAbortRef.current()
             streamAbortRef.current = null
           }
+          // Explicitly save full conversation to history for this note
+          if (noteIdForSave) {
+            const fullMessages = [...messagesBeforeExchange, userMsg, assistantMsg]
+            saveHistory(noteIdForSave, fullMessages)
+            setHistoryCount(fullMessages.length)
+          }
         },
         // onError
         (errMsg: string) => {
@@ -324,6 +452,12 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
           if (partialContent) {
             const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
             setMessages(prev => [...prev, assistantMsg])
+            // Also save partial conversation to history
+            if (noteIdForSave) {
+              const fullMessages = [...messagesBeforeExchange, userMsg, assistantMsg]
+              saveHistory(noteIdForSave, fullMessages)
+              setHistoryCount(fullMessages.length)
+            }
           }
           setStreamingContent('')
           streamingContentRef.current = ''
@@ -341,7 +475,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
       setIsStreaming(false)
       setLoading(false)
     }
-  }, [input, loading, isStreaming, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget, pdfFiles])
+  }, [input, loading, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory])
 
   const handleRetry = useCallback(async (msgIndex: number) => {
     const userMsg = messages[msgIndex - 1]
@@ -354,6 +488,9 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     setError(null)
     setStreamingContent('')
     streamingContentRef.current = ''
+
+    const noteIdForSave = currentNoteId
+    const messagesBeforeRetry = newMessages
 
     const rawContext = getSelectedContext()
     const contextWithBudget = buildContextWithBudget(rawContext)
@@ -399,6 +536,11 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
             streamAbortRef.current()
             streamAbortRef.current = null
           }
+          if (noteIdForSave) {
+            const fullMessages = [...messagesBeforeRetry, userMsg, assistantMsg]
+            saveHistory(noteIdForSave, fullMessages)
+            setHistoryCount(fullMessages.length)
+          }
         },
         (errMsg: string) => {
           setError(errMsg)
@@ -406,6 +548,11 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
           if (partialContent) {
             const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
             setMessages(prev => [...prev, assistantMsg])
+            if (noteIdForSave) {
+              const fullMessages = [...messagesBeforeRetry, userMsg, assistantMsg]
+              saveHistory(noteIdForSave, fullMessages)
+              setHistoryCount(fullMessages.length)
+            }
           }
           setStreamingContent('')
           streamingContentRef.current = ''
@@ -423,7 +570,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
       setIsStreaming(false)
       setLoading(false)
     }
-  }, [messages, isStreaming, apiKey, apiUrl, model, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget, pdfFiles])
+  }, [messages, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory])
 
   const handleCopy = useCallback(async (content: string, idx: number) => {
     try {
@@ -442,6 +589,29 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
     }
   }, [])
 
+  const handleWriteToNote = useCallback((content: string) => {
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    const appendContent = `\n\n---\n【写入时间：${timeStr}】\n\n${content}`
+
+    // Find active note
+    const activeNote = openNotes.find(n => n.isActive)
+    if (activeNote) {
+      if (onWriteToNote) {
+        onWriteToNote(activeNote.id, appendContent)
+        if (onToast) onToast('内容已成功写入笔记', 'success')
+      }
+    } else {
+      // No active note, create a new one
+      if (onCreateNoteFromAI) {
+        const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+        const title = `AI问答记录_${dateStr}`
+        onCreateNoteFromAI(title, appendContent.trim())
+        if (onToast) onToast('内容已成功写入笔记', 'success')
+      }
+    }
+  }, [openNotes, onWriteToNote, onCreateNoteFromAI, onToast])
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -459,6 +629,10 @@ export default function AIPanel({ isOpen, onClose, currentNoteContent, currentNo
   }
 
   const confirmClearChat = () => {
+    // Save current messages before clearing (so history is preserved)
+    if (currentNoteId && messages.length > 0) {
+      saveHistory(currentNoteId, messages)
+    }
     setMessages([])
     setError(null)
     setClearChatConfirm(false)
@@ -612,6 +786,16 @@ ${rawPrompt}
           <span className="text-sm font-semibold text-[#cba6f7]">AI Assistant</span>
         </div>
         <div className="flex gap-1 flex-shrink-0">
+          <button onClick={handleLoadHistory} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#89b4fa] relative" title={historyCount > 0 ? `历史记录 (${historyCount}条)` : '历史记录'}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
+            </svg>
+            {historyCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[#89b4fa] text-[#1e1e2e] text-[9px] font-bold leading-none px-0.5">
+                {historyCount > 99 ? '99+' : historyCount}
+              </span>
+            )}
+          </button>
           <button onClick={clearChat} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#f9e2af]" title="Clear chat">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -797,6 +981,19 @@ ${rawPrompt}
                         </svg>
                         Retry
                       </button>
+                      <button
+                        onClick={() => handleWriteToNote(msg.content)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[#a6adc8] hover:bg-[#45475a] hover:text-[#a6e3a1] transition-colors"
+                        title="写入笔记"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                          <polyline points="14,2 14,8 20,8" />
+                          <line x1="12" y1="18" x2="12" y2="12" />
+                          <polyline points="9,15 12,12 15,15" />
+                        </svg>
+                        写入笔记
+                      </button>
                     </div>
                   </div>
                 </>
@@ -951,14 +1148,14 @@ ${rawPrompt}
                 // 实时调整高度
                 const el = e.target;
                 el.style.height = 'auto';
-                el.style.height = `${Math.max(96, Math.min(el.scrollHeight, 360))}px`; // 最小4行(96px)，最大15行(360px)
+                el.style.height = `${Math.max(72, Math.min(el.scrollHeight, 360))}px`; // 最小3行(72px)，最大15行(360px)
               }}
               onKeyDown={handleKeyDown}
               placeholder="Ask about your notes or PDF files..."
               className="w-full px-3 py-2 pr-10 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
               style={{
-                height: '96px', // 默认4行高度
-                minHeight: '96px', // 最小4行
+                height: '72px', // 默认3行高度
+                minHeight: '72px', // 最小3行
                 maxHeight: '360px', // 最大15行
               }}
               disabled={loading || optimizing}
