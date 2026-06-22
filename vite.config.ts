@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -19,4 +20,10 @@ export default defineConfig({
     host: true,  // Bind to all interfaces (fixes IPv4/IPv6 issues)
   },
   clearScreen: false,
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['./src/**/*.{test,spec}.{ts,tsx}'],
+  },
 })

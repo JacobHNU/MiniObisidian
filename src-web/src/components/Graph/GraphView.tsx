@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import * as api from '../../ipc/tauri'
+import { useI18n } from '../../i18n'
 
 interface GraphViewProps {
   onSelectNote?: (noteId: string) => void
@@ -7,6 +8,7 @@ interface GraphViewProps {
 }
 
 export default function GraphView({ onSelectNote, notes = [] }: GraphViewProps) {
+  const { t } = useI18n()
   const [data, setData] = useState<api.GraphData | null>(null)
   const [loading, setLoading] = useState(true)
   const [nodes, setNodes] = useState<{ id: string; x: number; y: number; title: string; tags: string[] }[]>([])
@@ -143,45 +145,45 @@ export default function GraphView({ onSelectNote, notes = [] }: GraphViewProps) 
   }, [])
 
   if (loading) {
-    return <div className="flex items-center justify-center h-full text-[#6c7086]">Loading graph...</div>
+    return <div className="flex items-center justify-center h-full text-text-muted">{t('graph.loading')}</div>
   }
 
   if (nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-[#6c7086]">
+      <div className="flex items-center justify-center h-full text-text-muted">
         <div className="text-center">
           <div className="text-4xl mb-3">🕸️</div>
-          <p>No notes with links yet</p>
-          <p className="text-sm mt-1">Use [[note name]] to create links between notes</p>
+          <p>{t('graph.noLinks')}</p>
+          <p className="text-sm mt-1">{t('graph.useLinks')}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full overflow-hidden bg-[#1e1e2e] relative">
+    <div className="h-full overflow-hidden bg-base relative">
       {/* Zoom controls */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
         <button
           onClick={() => setViewBox((p) => ({ ...p, w: p.w * 0.85, h: p.h * 0.85 }))}
-          className="w-8 h-8 rounded bg-[#313244] hover:bg-[#45475a] text-[#cdd6f4] flex items-center justify-center text-lg font-bold"
-          title="Zoom in"
+          className="w-8 h-8 rounded bg-muted hover:bg-hover text-text-primary flex items-center justify-center text-lg font-bold"
+          title={t('graph.zoomIn')}
         >+</button>
         <button
           onClick={() => setViewBox((p) => ({ ...p, w: p.w * 1.15, h: p.h * 1.15 }))}
-          className="w-8 h-8 rounded bg-[#313244] hover:bg-[#45475a] text-[#cdd6f4] flex items-center justify-center text-lg font-bold"
-          title="Zoom out"
-        >−</button>
+          className="w-8 h-8 rounded bg-muted hover:bg-hover text-text-primary flex items-center justify-center text-lg font-bold"
+          title="Z o"
+        >&#x2212;</button>
         <button
           onClick={handleResetView}
-          className="w-8 h-8 rounded bg-[#313244] hover:bg-[#45475a] text-[#cdd6f4] flex items-center justify-center text-xs"
-          title="Reset view"
-        >⊙</button>
+          className="w-8 h-8 rounded bg-muted hover:bg-hover text-text-primary flex items-center justify-center text-xs"
+          title={t('graph.resetView')}
+        >&#x2299;</button>
       </div>
 
       {/* Info */}
-      <div className="absolute bottom-3 left-3 z-10 text-[10px] text-[#6c7086]">
-        Scroll to zoom · Drag to pan · Hover nodes to highlight connections
+      <div className="absolute bottom-3 left-3 z-10 text-[10px] text-text-muted">
+        {t('graph.hint')}
       </div>
 
       <svg
@@ -204,7 +206,7 @@ export default function GraphView({ onSelectNote, notes = [] }: GraphViewProps) 
           const isHL = hoveredNode && connectedNodes.has(edge.source) && connectedNodes.has(edge.target)
           return (
             <line key={i} x1={source.x} y1={source.y} x2={target.x} y2={target.y}
-              stroke={isHL ? '#cba6f7' : '#45475a'} strokeWidth={isHL ? 2.5 : 1}
+              stroke={isHL ? 'var(--accent)' : 'var(--border-hover)'} strokeWidth={isHL ? 2.5 : 1}
               opacity={hoveredNode && !isHL ? 0.15 : 0.8} />
           )
         })}
@@ -225,12 +227,12 @@ export default function GraphView({ onSelectNote, notes = [] }: GraphViewProps) 
               }}
               style={{ cursor: 'pointer' }}>
               <circle cx={node.x} cy={node.y} r={isHovered ? 10 : 6}
-                fill={isDaily ? '#a6e3a1' : isHovered ? '#cba6f7' : isConn ? '#89b4fa' : '#a6adc8'}
+                fill={isDaily ? 'var(--green)' : isHovered ? 'var(--accent)' : isConn ? 'var(--blue)' : 'var(--text-secondary)'}
                 opacity={dimmed ? 0.2 : 1}
-                stroke={isHovered ? '#f5c2e7' : 'none'} strokeWidth={2.5}
+                stroke={isHovered ? 'var(--pink)' : 'none'} strokeWidth={2.5}
                 className="cursor-pointer transition-all" />
               <text x={node.x} y={node.y - 14} textAnchor="middle"
-                fill={dimmed ? '#45475a' : '#cdd6f4'} fontSize={isHovered ? 14 : 11}
+                fill={dimmed ? 'var(--border-hover)' : 'var(--text-primary)'} fontSize={isHovered ? 14 : 11}
                 fontWeight={isHovered ? 700 : 400} className="pointer-events-none select-none">
                 {node.title}
               </text>

@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import * as api from '../../ipc/tauri'
 import ConfirmDialog from '../ConfirmDialog'
+import { useI18n } from '../../i18n'
 
 // pdfjs-dist is loaded dynamically in handlePdfUpload to avoid
 // the top-level await in pdf.mjs from crashing the app at startup.
@@ -41,6 +42,7 @@ const CHARS_PER_TOKEN = 2.5
 const MAX_CONTEXT_TOKENS = 12000
 
 export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteContent, currentNoteTitle, openNotes, prefillText, onWriteToNote, onCreateNoteFromAI, onToast }: AIPanelProps) {
+  const { t } = useI18n()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -185,19 +187,19 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
   // Load history for the current note (explicit user action)
   const handleLoadHistory = useCallback(() => {
     if (!currentNoteId) {
-      if (onToast) onToast('没有关联的笔记，无法加载历史记录', 'error')
+      if (onToast) onToast(t('ai.noRelatedNotes'), 'error')
       return
     }
     const history = loadHistory(currentNoteId)
     if (history.length === 0) {
-      if (onToast) onToast('当前笔记暂无AI对话历史记录', 'success')
+      if (onToast) onToast(t('ai.noHistory'), 'success')
       return
     }
     setMessages(history)
     historyNoteIdRef.current = currentNoteId
     setError(null)
-    if (onToast) onToast(`已加载 ${history.length} 条历史对话`, 'success')
-  }, [currentNoteId, loadHistory, onToast])
+    if (onToast) onToast(t('ai.historyLoaded', { count: history.length }), 'success')
+  }, [currentNoteId, loadHistory, onToast, t])
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -372,7 +374,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
     if (!question || loading || isStreaming) return
 
     if (!apiKey) {
-      setError('请先配置 API Key')
+      setError(t('ai.pleaseConfigApiKey'))
       setConfigOpen(true)
       return
     }
@@ -400,7 +402,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
       pdfFiles.forEach((pdf, fileName) => {
         const maxPdfLength = 50000
         const truncatedText = pdf.text.length > maxPdfLength
-          ? pdf.text.substring(0, maxPdfLength) + '\n...(内容已截断)'
+          ? pdf.text.substring(0, maxPdfLength) + '\n' + t('ai.contentTruncated')
           : pdf.text
         pdfContexts.push(`\n\n[PDF文件: ${fileName}]\n${truncatedText}`)
       })
@@ -412,7 +414,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
         {
           question,
           noteContent: currentNoteContent + pdfContext,
-          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (含${pdfFiles.size}个PDF文件)` : ''),
+          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (${t('ai.pdfFilesIncluded', { count: pdfFiles.size })})` : ''),
           apiKey,
           apiUrl,
           model,
@@ -450,7 +452,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
           // If we got partial content, still save it as a message
           const partialContent = streamingContentRef.current
           if (partialContent) {
-            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
+            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n' + t('ai.responseInterrupted'), timestamp: Date.now() }
             setMessages(prev => [...prev, assistantMsg])
             // Also save partial conversation to history
             if (noteIdForSave) {
@@ -475,7 +477,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
       setIsStreaming(false)
       setLoading(false)
     }
-  }, [input, loading, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory])
+  }, [input, loading, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, messages, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory, t])
 
   const handleRetry = useCallback(async (msgIndex: number) => {
     const userMsg = messages[msgIndex - 1]
@@ -501,7 +503,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
       pdfFiles.forEach((pdf, fileName) => {
         const maxPdfLength = 50000
         const truncatedText = pdf.text.length > maxPdfLength
-          ? pdf.text.substring(0, maxPdfLength) + '\n...(内容已截断)'
+          ? pdf.text.substring(0, maxPdfLength) + '\n' + t('ai.contentTruncated')
           : pdf.text
         pdfContexts.push(`\n\n[PDF文件: ${fileName}]\n${truncatedText}`)
       })
@@ -513,7 +515,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
         {
           question: userMsg.content,
           noteContent: currentNoteContent + pdfContext,
-          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (含${pdfFiles.size}个PDF文件)` : ''),
+          noteTitle: currentNoteTitle + (pdfFiles.size > 0 ? ` (${t('ai.pdfFilesIncluded', { count: pdfFiles.size })})` : ''),
           apiKey,
           apiUrl,
           model,
@@ -546,7 +548,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
           setError(errMsg)
           const partialContent = streamingContentRef.current
           if (partialContent) {
-            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n⚠️ *响应中断*', timestamp: Date.now() }
+            const assistantMsg: Message = { role: 'assistant', content: partialContent + '\n\n' + t('ai.responseInterrupted'), timestamp: Date.now() }
             setMessages(prev => [...prev, assistantMsg])
             if (noteIdForSave) {
               const fullMessages = [...messagesBeforeRetry, userMsg, assistantMsg]
@@ -570,7 +572,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
       setIsStreaming(false)
       setLoading(false)
     }
-  }, [messages, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory])
+  }, [messages, isStreaming, apiKey, apiUrl, model, currentNoteId, currentNoteContent, currentNoteTitle, getSelectedContext, buildContextWithBudget, pdfFiles, saveHistory, t])
 
   const handleCopy = useCallback(async (content: string, idx: number) => {
     try {
@@ -592,25 +594,25 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
   const handleWriteToNote = useCallback((content: string) => {
     const now = new Date()
     const timeStr = `${now.getFullYear()}年${String(now.getMonth() + 1).padStart(2, '0')}月${String(now.getDate()).padStart(2, '0')}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    const appendContent = `\n\n---\n【写入时间：${timeStr}】\n\n${content}`
+    const appendContent = `\n\n---\n${t('ai.writeTime', { time: timeStr })}\n\n${content}`
 
     // Find active note
     const activeNote = openNotes.find(n => n.isActive)
     if (activeNote) {
       if (onWriteToNote) {
         onWriteToNote(activeNote.id, appendContent)
-        if (onToast) onToast('内容已成功写入笔记', 'success')
+        if (onToast) onToast(t('ai.writeSuccess'), 'success')
       }
     } else {
       // No active note, create a new one
       if (onCreateNoteFromAI) {
         const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
-        const title = `AI问答记录_${dateStr}`
+        const title = t('ai.historyNoteTitle', { date: dateStr })
         onCreateNoteFromAI(title, appendContent.trim())
-        if (onToast) onToast('内容已成功写入笔记', 'success')
+        if (onToast) onToast(t('ai.writeSuccess'), 'success')
       }
     }
-  }, [openNotes, onWriteToNote, onCreateNoteFromAI, onToast])
+  }, [openNotes, onWriteToNote, onCreateNoteFromAI, onToast, t])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -671,7 +673,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
           const textContent = await page.getTextContent()
           const pageText = textContent.items.map((item: any) => item.str).join(' ')
           pages.set(i, pageText)
-          fullText += `\n[第${i}页]\n${pageText}`
+          fullText += `\n[${t('ai.pageLabel', { num: i })}]\n${pageText}`
         }
 
         newPdfFiles.set(file.name, {
@@ -691,7 +693,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
     setPdfUploadLoading(false)
     // Reset file input
     if (fileInputRef.current) fileInputRef.current.value = ''
-  }, [pdfFiles])
+  }, [pdfFiles, t])
 
   // Remove PDF from context
   const removePdf = useCallback((fileName: string) => {
@@ -707,7 +709,7 @@ export default function AIPanel({ isOpen, onClose, currentNoteId, currentNoteCon
     if (!rawPrompt) return
 
     if (!apiKey) {
-      setError('请先配置 API Key')
+      setError(t('ai.pleaseConfigApiKey'))
       setConfigOpen(true)
       return
     }
@@ -749,7 +751,7 @@ ${rawPrompt}
     } finally {
       setOptimizing(false)
     }
-  }, [input, apiKey, apiUrl, model])
+  }, [input, apiKey, apiUrl, model, t])
 
   const useOptimizedPrompt = () => {
     setInput(optimizedResult)
@@ -767,46 +769,46 @@ ${rawPrompt}
 
   return (
     <div
-      className="flex-shrink-0 bg-[#1e1e2e] border-l border-[#313244] flex flex-col h-full relative"
+      className="flex-shrink-0 bg-base border-l border-border-muted flex flex-col h-full relative"
       style={{ width: panelWidth }}
     >
       {/* Resize handle */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#cba6f7]/40 transition-colors z-10"
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-accent/40 transition-colors z-10"
         onMouseDown={() => setIsResizing(true)}
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#313244]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-muted">
         <div className="flex items-center gap-2 min-w-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#cba6f7" strokeWidth="2" className="flex-shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 text-accent">
             <path d="M12 2a7 7 0 017 7v1a7 7 0 01-14 0V9a7 7 0 017-7z" />
             <path d="M8 21h8M12 17v4" />
           </svg>
-          <span className="text-sm font-semibold text-[#cba6f7]">AI Assistant</span>
+          <span className="text-sm font-semibold text-accent">{t('ai.title')}</span>
         </div>
         <div className="flex gap-1 flex-shrink-0">
-          <button onClick={handleLoadHistory} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#89b4fa] relative" title={historyCount > 0 ? `历史记录 (${historyCount}条)` : '历史记录'}>
+          <button onClick={handleLoadHistory} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-blue relative" title={t('ai.historyCount', { count: historyCount })}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" />
             </svg>
             {historyCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[#89b4fa] text-[#1e1e2e] text-[9px] font-bold leading-none px-0.5">
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-blue text-text-inverse text-[9px] font-bold leading-none px-0.5">
                 {historyCount > 99 ? '99+' : historyCount}
               </span>
             )}
           </button>
-          <button onClick={clearChat} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#f9e2af]" title="Clear chat">
+          <button onClick={clearChat} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-yellow" title={t('ai.clearChat')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
             </svg>
           </button>
-          <button onClick={() => setConfigOpen(!configOpen)} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#89b4fa]" title="Settings">
+          <button onClick={() => setConfigOpen(!configOpen)} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-blue" title={t('ai.settings')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" />
             </svg>
           </button>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#f38ba8]" title="Close">
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-red" title="Close">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
@@ -816,41 +818,41 @@ ${rawPrompt}
 
       {/* Config panel */}
       {configOpen && (
-        <div className="px-3 py-2 border-b border-[#313244] bg-[#181825] space-y-2">
+        <div className="px-3 py-2 border-b border-border-muted bg-surface space-y-2">
           <div>
-            <label className="block text-xs text-[#a6adc8] mb-1">API Base URL</label>
-            <input type="text" value={apiUrl} onChange={e => setApiUrl(e.target.value)} placeholder="https://api.openai.com/v1" className="w-full px-2 py-1 text-xs bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] focus:outline-none focus:border-[#cba6f7]" />
+            <label className="block text-xs text-text-secondary mb-1">{t('ai.apiBaseUrl')}</label>
+            <input type="text" value={apiUrl} onChange={e => setApiUrl(e.target.value)} placeholder="https://api.openai.com/v1" className="w-full px-2 py-1 text-xs bg-muted border border-border-hover rounded text-text-primary focus:outline-none focus:border-accent" />
           </div>
           <div>
-            <label className="block text-xs text-[#a6adc8] mb-1">API Key</label>
-            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." className="w-full px-2 py-1 text-xs bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] focus:outline-none focus:border-[#cba6f7]" />
+            <label className="block text-xs text-text-secondary mb-1">{t('ai.apiKey')}</label>
+            <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={t('ai.apiKeyPlaceholder')} className="w-full px-2 py-1 text-xs bg-muted border border-border-hover rounded text-text-primary focus:outline-none focus:border-accent" />
           </div>
           <div>
-            <label className="block text-xs text-[#a6adc8] mb-1">Model</label>
-            <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder="gpt-4o-mini" className="w-full px-2 py-1 text-xs bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] focus:outline-none focus:border-[#cba6f7]" />
+            <label className="block text-xs text-text-secondary mb-1">{t('ai.model')}</label>
+            <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder={t('ai.modelPlaceholder')} className="w-full px-2 py-1 text-xs bg-muted border border-border-hover rounded text-text-primary focus:outline-none focus:border-accent" />
           </div>
           <div>
-            <label className="block text-xs text-[#a6adc8] mb-1">Max Context Tokens</label>
-            <input type="number" value={maxTokens} onChange={e => setMaxTokens(Number(e.target.value))} className="w-full px-2 py-1 text-xs bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] focus:outline-none focus:border-[#cba6f7]" />
+            <label className="block text-xs text-text-secondary mb-1">{t('ai.maxContextTokens')}</label>
+            <input type="number" value={maxTokens} onChange={e => setMaxTokens(Number(e.target.value))} className="w-full px-2 py-1 text-xs bg-muted border border-border-hover rounded text-text-primary focus:outline-none focus:border-accent" />
           </div>
-          <button onClick={saveConfig} className="w-full py-1 text-xs bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors">Save</button>
+          <button onClick={saveConfig} className="w-full py-1 text-xs bg-accent text-text-inverse rounded hover:bg-lavender transition-colors">{t('ai.save')}</button>
         </div>
       )}
 
       {/* Context selector */}
-      <div className="border-b border-[#313244]">
+      <div className="border-b border-border-muted">
         <button
           onClick={() => setContextOpen(!contextOpen)}
-          className="w-full px-3 py-1.5 flex items-center justify-between text-xs hover:bg-[#181825] transition-colors"
+          className="w-full px-3 py-1.5 flex items-center justify-between text-xs hover:bg-surface transition-colors"
         >
-          <div className="flex items-center gap-1.5 text-[#6c7086]">
+          <div className="flex items-center gap-1.5 text-text-muted">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
               <path d="M14 2v6h6" />
             </svg>
-            <span>Context: {selectedNoteIds.size} notes</span>
-            <span className="text-[#45475a]">|</span>
-            <span>~{totalContextTokens.toLocaleString()} tokens</span>
+            <span>{t('ai.contextNotes', { count: selectedNoteIds.size })}</span>
+            <span className="text-text-surface">|</span>
+            <span>{t('ai.tokens', { count: totalContextTokens.toLocaleString() })}</span>
           </div>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${contextOpen ? 'rotate-180' : ''}`}>
             <path d="M6 9l6 6 6-6" />
@@ -860,12 +862,12 @@ ${rawPrompt}
         {contextOpen && (
           <div className="px-3 pb-2 space-y-1">
             <div className="flex gap-1 mb-1">
-              <button onClick={selectAll} className="px-1.5 py-0.5 text-[10px] rounded bg-[#313244] text-[#a6adc8] hover:text-[#cdd6f4]">All</button>
-              <button onClick={selectNone} className="px-1.5 py-0.5 text-[10px] rounded bg-[#313244] text-[#a6adc8] hover:text-[#cdd6f4]">None</button>
-              <button onClick={selectActive} className="px-1.5 py-0.5 text-[10px] rounded bg-[#313244] text-[#a6adc8] hover:text-[#cdd6f4]">Active</button>
+              <button onClick={selectAll} className="px-1.5 py-0.5 text-[10px] rounded bg-muted text-text-secondary hover:text-text-primary">{t('ai.all')}</button>
+              <button onClick={selectNone} className="px-1.5 py-0.5 text-[10px] rounded bg-muted text-text-secondary hover:text-text-primary">{t('ai.none')}</button>
+              <button onClick={selectActive} className="px-1.5 py-0.5 text-[10px] rounded bg-muted text-text-secondary hover:text-text-primary">{t('ai.active')}</button>
             </div>
             {openNotes.length === 0 ? (
-              <div className="text-[10px] text-[#6c7086] py-1">No open notes</div>
+              <div className="text-[10px] text-text-muted py-1">{t('ai.noOpenNotes')}</div>
             ) : (
               openNotes.map(note => (
                 <label key={note.id} className="flex items-center gap-2 py-0.5 cursor-pointer group">
@@ -873,21 +875,21 @@ ${rawPrompt}
                     type="checkbox"
                     checked={selectedNoteIds.has(note.id)}
                     onChange={() => toggleNoteSelection(note.id)}
-                    className="accent-[#cba6f7] w-3 h-3"
+                    className="accent-accent w-3 h-3"
                   />
-                  <span className={`text-[11px] truncate ${note.isActive ? 'text-[#cba6f7]' : 'text-[#a6adc8]'} group-hover:text-[#cdd6f4]`}>
+                  <span className={`text-[11px] truncate ${note.isActive ? 'text-accent' : 'text-text-secondary'} group-hover:text-text-primary`}>
                     {note.title}
-                    {note.isActive && <span className="ml-1 text-[9px] text-[#6c7086]">(active)</span>}
+                    {note.isActive && <span className="ml-1 text-[9px] text-text-muted">{t('ai.activeLabel')}</span>}
                   </span>
-                  <span className="text-[9px] text-[#45475a] ml-auto flex-shrink-0">
+                  <span className="text-[9px] text-text-surface ml-auto flex-shrink-0">
                     ~{estimateTokens(note.content).toLocaleString()}t
                   </span>
                 </label>
               ))
             )}
             {totalContextTokens > maxTokens && (
-              <div className="text-[10px] text-[#f9e2af] mt-1">
-                Context exceeds limit ({maxTokens.toLocaleString()}t). Content will be auto-truncated.
+              <div className="text-[10px] text-yellow mt-1">
+                {t('ai.contextExceeds', { limit: maxTokens.toLocaleString() })}
               </div>
             )}
           </div>
@@ -897,13 +899,13 @@ ${rawPrompt}
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-[#6c7086]">
+          <div className="flex flex-col items-center justify-center h-full text-text-muted">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mb-3 opacity-50">
               <path d="M12 2a7 7 0 017 7v1a7 7 0 01-14 0V9a7 7 0 017-7z" />
               <path d="M8 21h8M12 17v4" />
             </svg>
-            <p className="text-sm">Ask a question about your notes</p>
-            <p className="text-xs mt-1">Select notes from the context panel above</p>
+            <p className="text-sm">{t('ai.askHint')}</p>
+            <p className="text-xs mt-1">{t('ai.selectNotesHint')}</p>
           </div>
         )}
 
@@ -911,13 +913,13 @@ ${rawPrompt}
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-full rounded-lg text-sm ${
               msg.role === 'user'
-                ? 'bg-[#cba6f7] text-[#1e1e2e] px-3 py-2'
-                : 'bg-[#313244] text-[#cdd6f4] px-3 py-2 w-full'
+                ? 'bg-accent text-text-inverse px-3 py-2'
+                : 'bg-muted text-text-primary px-3 py-2 w-full'
             }`}>
               {msg.role === 'user' ? (
                 <>
                   <div className="whitespace-pre-wrap break-words">{msg.content}</div>
-                  <div className="text-[10px] mt-1 text-[#1e1e2e]/50">
+                  <div className="text-[10px] mt-1 text-text-inverse/50">
                     {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </>
@@ -928,63 +930,63 @@ ${rawPrompt}
                       remarkPlugins={[remarkGfm]}
                       components={{
                         pre: ({ children, ...props }) => (
-                          <pre className="bg-[#181825] rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
+                          <pre className="bg-surface rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
                         ),
                         code: ({ className, children, ...props }) => {
                           const isInline = !className
-                          if (isInline) return <code className="bg-[#45475a] px-1 py-0.5 rounded text-[#f9e2af] text-xs" {...props}>{children}</code>
+                          if (isInline) return <code className="bg-hover px-1 py-0.5 rounded text-yellow text-xs" {...props}>{children}</code>
                           return <code className={className} {...props}>{children}</code>
                         },
                         p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
                         ul: ({ children, ...props }) => <ul className="list-disc pl-4 mb-2" {...props}>{children}</ul>,
                         ol: ({ children, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props}>{children}</ol>,
                         li: ({ children, ...props }) => <li className="mb-0.5" {...props}>{children}</li>,
-                        h1: ({ children, ...props }) => <h1 className="text-base font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h1>,
-                        h2: ({ children, ...props }) => <h2 className="text-sm font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h2>,
-                        h3: ({ children, ...props }) => <h3 className="text-sm font-semibold mb-1 text-[#cba6f7]" {...props}>{children}</h3>,
+                        h1: ({ children, ...props }) => <h1 className="text-base font-bold mb-2 text-accent" {...props}>{children}</h1>,
+                        h2: ({ children, ...props }) => <h2 className="text-sm font-bold mb-2 text-accent" {...props}>{children}</h2>,
+                        h3: ({ children, ...props }) => <h3 className="text-sm font-semibold mb-1 text-accent" {...props}>{children}</h3>,
                         blockquote: ({ children, ...props }) => (
-                          <blockquote className="border-l-2 border-[#cba6f7] pl-3 my-2 text-[#a6adc8]" {...props}>{children}</blockquote>
+                          <blockquote className="border-l-2 border-accent pl-3 my-2 text-text-secondary" {...props}>{children}</blockquote>
                         ),
-                        a: ({ children, ...props }) => <a className="text-[#89b4fa] underline" {...props}>{children}</a>,
+                        a: ({ children, ...props }) => <a className="text-blue underline" {...props}>{children}</a>,
                         table: ({ children, ...props }) => <table className="border-collapse my-2 text-xs w-full" {...props}>{children}</table>,
-                        th: ({ children, ...props }) => <th className="border border-[#45475a] px-2 py-1 bg-[#181825] text-left" {...props}>{children}</th>,
-                        td: ({ children, ...props }) => <td className="border border-[#45475a] px-2 py-1" {...props}>{children}</td>,
+                        th: ({ children, ...props }) => <th className="border border-border-hover px-2 py-1 bg-surface text-left" {...props}>{children}</th>,
+                        td: ({ children, ...props }) => <td className="border border-border-hover px-2 py-1" {...props}>{children}</td>,
                       }}
                     >
                       {msg.content}
                     </ReactMarkdown>
                   </div>
-                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-[#45475a]/50">
-                    <span className="text-[10px] text-[#6c7086]">
+                  <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-hover/50">
+                    <span className="text-[10px] text-text-muted">
                       {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     <div className="flex gap-1">
                       <button
                         onClick={() => handleCopy(msg.content, i)}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[#a6adc8] hover:bg-[#45475a] hover:text-[#cdd6f4] transition-colors"
-                        title="Copy"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-text-secondary hover:bg-hover hover:text-text-primary transition-colors"
+                        title={t('ai.copy')}
                       >
                         {copiedIdx === i ? (
-                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>Copied</>
+                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5" /></svg>{t('ai.copied')}</>
                         ) : (
-                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>Copy</>
+                          <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>{t('ai.copy')}</>
                         )}
                       </button>
                       <button
                         onClick={() => handleRetry(i)}
                         disabled={loading}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[#a6adc8] hover:bg-[#45475a] hover:text-[#cdd6f4] transition-colors disabled:opacity-50"
-                        title="Retry"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-text-secondary hover:bg-hover hover:text-text-primary transition-colors disabled:opacity-50"
+                        title={t('ai.retry')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M1 4v6h6" /><path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
                         </svg>
-                        Retry
+                        {t('ai.retry')}
                       </button>
                       <button
                         onClick={() => handleWriteToNote(msg.content)}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[#a6adc8] hover:bg-[#45475a] hover:text-[#a6e3a1] transition-colors"
-                        title="写入笔记"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-text-secondary hover:bg-hover hover:text-green transition-colors"
+                        title={t('ai.writeToNote')}
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
@@ -992,7 +994,7 @@ ${rawPrompt}
                           <line x1="12" y1="18" x2="12" y2="12" />
                           <polyline points="9,15 12,12 15,15" />
                         </svg>
-                        写入笔记
+                        {t('ai.writeToNote')}
                       </button>
                     </div>
                   </div>
@@ -1004,41 +1006,41 @@ ${rawPrompt}
 
         {loading && isStreaming && streamingContent && (
           <div className="flex justify-start">
-            <div className="bg-[#313244] rounded-lg px-3 py-2 text-sm text-[#cdd6f4] w-full">
+            <div className="bg-muted rounded-lg px-3 py-2 text-sm text-text-primary w-full">
               <div className="ai-markdown-content break-words overflow-hidden">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     pre: ({ children, ...props }) => (
-                      <pre className="bg-[#181825] rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
+                      <pre className="bg-surface rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
                     ),
                     code: ({ className, children, ...props }) => {
                       const isInline = !className
-                      if (isInline) return <code className="bg-[#45475a] px-1 py-0.5 rounded text-[#f9e2af] text-xs" {...props}>{children}</code>
+                      if (isInline) return <code className="bg-hover px-1 py-0.5 rounded text-yellow text-xs" {...props}>{children}</code>
                       return <code className={className} {...props}>{children}</code>
                     },
                     p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
                     ul: ({ children, ...props }) => <ul className="list-disc pl-4 mb-2" {...props}>{children}</ul>,
                     ol: ({ children, ...props }) => <ol className="list-decimal pl-4 mb-2" {...props}>{children}</ol>,
                     li: ({ children, ...props }) => <li className="mb-0.5" {...props}>{children}</li>,
-                    h1: ({ children, ...props }) => <h1 className="text-base font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h1>,
-                    h2: ({ children, ...props }) => <h2 className="text-sm font-bold mb-2 text-[#cba6f7]" {...props}>{children}</h2>,
-                    h3: ({ children, ...props }) => <h3 className="text-sm font-semibold mb-1 text-[#cba6f7]" {...props}>{children}</h3>,
+                    h1: ({ children, ...props }) => <h1 className="text-base font-bold mb-2 text-accent" {...props}>{children}</h1>,
+                    h2: ({ children, ...props }) => <h2 className="text-sm font-bold mb-2 text-accent" {...props}>{children}</h2>,
+                    h3: ({ children, ...props }) => <h3 className="text-sm font-semibold mb-1 text-accent" {...props}>{children}</h3>,
                     blockquote: ({ children, ...props }) => (
-                      <blockquote className="border-l-2 border-[#cba6f7] pl-3 my-2 text-[#a6adc8]" {...props}>{children}</blockquote>
+                      <blockquote className="border-l-2 border-accent pl-3 my-2 text-text-secondary" {...props}>{children}</blockquote>
                     ),
-                    a: ({ children, ...props }) => <a className="text-[#89b4fa] underline" {...props}>{children}</a>,
+                    a: ({ children, ...props }) => <a className="text-blue underline" {...props}>{children}</a>,
                     table: ({ children, ...props }) => <table className="border-collapse my-2 text-xs w-full" {...props}>{children}</table>,
-                    th: ({ children, ...props }) => <th className="border border-[#45475a] px-2 py-1 bg-[#181825] text-left" {...props}>{children}</th>,
-                    td: ({ children, ...props }) => <td className="border border-[#45475a] px-2 py-1" {...props}>{children}</td>,
+                    th: ({ children, ...props }) => <th className="border border-border-hover px-2 py-1 bg-surface text-left" {...props}>{children}</th>,
+                    td: ({ children, ...props }) => <td className="border border-border-hover px-2 py-1" {...props}>{children}</td>,
                   }}
                 >
                   {streamingContent}
                 </ReactMarkdown>
               </div>
-              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-[#45475a]/50">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#a6e3a1] animate-pulse" />
-                <span className="text-[10px] text-[#6c7086]">正在生成...</span>
+              <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-hover/50">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-green animate-pulse" />
+                <span className="text-[10px] text-text-muted">{t('ai.generating')}</span>
               </div>
             </div>
           </div>
@@ -1046,7 +1048,7 @@ ${rawPrompt}
 
         {loading && (!isStreaming || !streamingContent) && (
           <div className="flex justify-start">
-            <div className="bg-[#313244] rounded-lg px-3 py-2 text-sm text-[#a6adc8]">
+            <div className="bg-muted rounded-lg px-3 py-2 text-sm text-text-secondary">
               <span className="inline-flex gap-1">
                 <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
                 <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
@@ -1057,7 +1059,7 @@ ${rawPrompt}
         )}
 
         {error && (
-          <div className="bg-[#f38ba8]/10 border border-[#f38ba8]/30 rounded-lg px-3 py-2 text-xs text-[#f38ba8]">
+          <div className="bg-red/10 border border-red/30 rounded-lg px-3 py-2 text-xs text-red">
             {error}
           </div>
         )}
@@ -1067,34 +1069,34 @@ ${rawPrompt}
 
       {/* Optimized result */}
       {showOptimizedResult && (
-        <div className="px-3 py-2 border-t border-[#313244] bg-[#181825]">
+        <div className="px-3 py-2 border-t border-border-muted bg-surface">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-[#cba6f7]">✨ 优化后的提示词</span>
+            <span className="text-xs font-semibold text-accent">{t('ai.optimizedPrompt')}</span>
             <div className="flex gap-1">
               <button
                 onClick={useOptimizedPrompt}
-                className="px-2 py-1 text-xs bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors"
+                className="px-2 py-1 text-xs bg-accent text-text-inverse rounded hover:bg-lavender transition-colors"
               >
-                使用此提示词
+                {t('ai.useThisPrompt')}
               </button>
               <button
                 onClick={() => setShowOptimizedResult(false)}
-                className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a] transition-colors"
+                className="px-2 py-1 text-xs bg-muted text-text-secondary rounded hover:bg-hover transition-colors"
               >
-                关闭
+                {t('ai.close')}
               </button>
             </div>
           </div>
-          <div className="ai-markdown-content text-sm bg-[#313244] rounded-lg px-3 py-2">
+          <div className="ai-markdown-content text-sm bg-muted rounded-lg px-3 py-2">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
                 pre: ({ children, ...props }) => (
-                  <pre className="bg-[#181825] rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
+                  <pre className="bg-surface rounded-md p-2 my-2 overflow-x-auto text-xs" {...props}>{children}</pre>
                 ),
                 code: ({ className, children, ...props }) => {
                   const isInline = !className
-                  if (isInline) return <code className="bg-[#45475a] px-1 py-0.5 rounded text-[#f9e2af] text-xs" {...props}>{children}</code>
+                  if (isInline) return <code className="bg-hover px-1 py-0.5 rounded text-yellow text-xs" {...props}>{children}</code>
                   return <code className={className} {...props}>{children}</code>
                 },
                 p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
@@ -1111,20 +1113,20 @@ ${rawPrompt}
 
       {/* PDF Files Context */}
       {pdfFiles.size > 0 && (
-        <div className="px-3 py-2 border-t border-[#313244] bg-[#181825]">
-          <div className="text-xs text-[#6c7086] mb-1">PDF文件上下文:</div>
+        <div className="px-3 py-2 border-t border-border-muted bg-surface">
+          <div className="text-xs text-text-muted mb-1">{t('ai.pdfContext')}</div>
           <div className="flex flex-wrap gap-1">
             {Array.from(pdfFiles.entries()).map(([fileName, pdf]) => (
-              <div key={fileName} className="flex items-center gap-1 px-2 py-1 bg-[#313244] rounded text-xs">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="2">
+              <div key={fileName} className="flex items-center gap-1 px-2 py-1 bg-muted rounded text-xs">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red">
                   <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
                   <polyline points="14,2 14,8 20,8" />
                 </svg>
-                <span className="text-[#cdd6f4]">{fileName}</span>
-                <span className="text-[#6c7086]">({pdf.pages.size}页)</span>
+                <span className="text-text-primary">{fileName}</span>
+                <span className="text-text-muted">({t('ai.pdfPages', { count: pdf.pages.size })})</span>
                 <button
                   onClick={() => removePdf(fileName)}
-                  className="ml-1 text-[#6c7086] hover:text-[#f38ba8]"
+                  className="ml-1 text-text-muted hover:text-red"
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M18 6L6 18M6 6l12 12" />
@@ -1137,7 +1139,7 @@ ${rawPrompt}
       )}
 
       {/* Input */}
-      <div className="px-3 py-2 border-t border-[#313244]">
+      <div className="px-3 py-2 border-t border-border-muted">
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <textarea
@@ -1151,8 +1153,8 @@ ${rawPrompt}
                 el.style.height = `${Math.max(72, Math.min(el.scrollHeight, 360))}px`; // 最小3行(72px)，最大15行(360px)
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about your notes or PDF files..."
-              className="w-full px-3 py-2 pr-10 text-sm bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] resize-none focus:outline-none focus:border-[#cba6f7] overflow-y-auto"
+              placeholder={t('ai.inputPlaceholder')}
+              className="w-full px-3 py-2 pr-10 text-sm bg-muted border border-border-hover rounded-lg text-text-primary placeholder-text-muted resize-none focus:outline-none focus:border-accent overflow-y-auto"
               style={{
                 height: '72px', // 默认3行高度
                 minHeight: '72px', // 最小3行
@@ -1164,8 +1166,8 @@ ${rawPrompt}
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={pdfUploadLoading}
-              className="absolute bottom-2 right-2 p-1.5 text-[#6c7086] hover:text-[#89b4fa] hover:bg-[#45475a] rounded transition-colors"
-              title="上传PDF文件"
+              className="absolute bottom-2 right-2 p-1.5 text-text-muted hover:text-blue hover:bg-hover rounded transition-colors"
+              title={t('ai.uploadPdf')}
             >
               {pdfUploadLoading ? (
                 <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1193,13 +1195,13 @@ ${rawPrompt}
             <button
               onClick={handleOptimizePrompt}
               disabled={loading || optimizing || !input.trim()}
-              className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a] hover:text-[#f9e2af] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              title="优化提示词"
+              className="px-2 py-1 text-xs bg-muted text-text-secondary rounded hover:bg-hover hover:text-yellow transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              title={t('ai.optimizePrompt')}
             >
               {optimizing ? (
-                <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>优化中</>
+                <><svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>{t('ai.optimizing')}</>
               ) : (
-                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>优化</>
+                <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>{t('ai.optimize')}</>
               )}
             </button>
             {isStreaming ? (
@@ -1220,8 +1222,8 @@ ${rawPrompt}
                     streamAbortRef.current = null
                   }
                 }}
-                className="self-end px-3 py-1.5 bg-[#f38ba8] text-[#1e1e2e] rounded hover:bg-[#eba0ac] transition-colors"
-                title="停止生成"
+                className="self-end px-3 py-1.5 bg-red text-text-inverse rounded hover:bg-red/80 transition-colors"
+                title={t('ai.stopGenerating')}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -1231,7 +1233,7 @@ ${rawPrompt}
               <button
                 onClick={handleSend}
                 disabled={loading || optimizing || !input.trim()}
-                className="self-end px-3 py-1.5 bg-[#cba6f7] text-[#1e1e2e] rounded hover:bg-[#b4befe] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="self-end px-3 py-1.5 bg-accent text-text-inverse rounded hover:bg-lavender transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
@@ -1240,17 +1242,17 @@ ${rawPrompt}
             )}
           </div>
         </div>
-        <div className="text-[10px] text-[#6c7086] mt-1">
-          Enter to send, Shift+Enter for new line | 点击 📎 上传PDF文件
+        <div className="text-[10px] text-text-muted mt-1">
+          {t('ai.inputHint')}
         </div>
       </div>
 
       {/* Confirm Dialog for clearing chat */}
       <ConfirmDialog
         isOpen={clearChatConfirm}
-        title="清空聊天记录"
-        message="确定要清空所有聊天记录吗？清空后无法恢复。"
-        confirmLabel="确认清空"
+        title={t('ai.clearChatTitle')}
+        message={t('ai.clearChatConfirm')}
+        confirmLabel={t('ai.clearChatConfirmBtn')}
         variant="warning"
         onConfirm={confirmClearChat}
         onCancel={() => setClearChatConfirm(false)}

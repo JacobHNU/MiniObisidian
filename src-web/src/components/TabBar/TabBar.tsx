@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react'
+import { useI18n } from '../../i18n'
 
 export interface Tab {
   id: string
@@ -14,6 +15,7 @@ interface TabBarProps {
 }
 
 export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: TabBarProps) {
+  const { t } = useI18n()
   const tabBarRef = useRef<HTMLDivElement>(null)
 
   // Scroll active tab into view
@@ -29,7 +31,7 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: Ta
   return (
     <div
       ref={tabBarRef}
-      className="flex bg-[#181825] border-b border-[#313244] overflow-x-auto scrollbar-hide"
+      className="flex bg-surface border-b border-border-muted overflow-x-auto scrollbar-hide"
       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
     >
       {tabs.map(tab => {
@@ -40,11 +42,11 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: Ta
             data-tab-id={tab.id}
             className={`
               group flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer
-              border-r border-[#313244] min-w-0 max-w-[180px] flex-shrink-0
+              border-r border-border-muted min-w-0 max-w-[180px] flex-shrink-0
               transition-colors select-none
               ${isActive
-                ? 'bg-[#1e1e2e] text-[#cdd6f4] border-b-2 border-b-[#cba6f7]'
-                : 'bg-[#181825] text-[#6c7086] hover:text-[#a6adc8] hover:bg-[#1e1e2e]/50'
+                ? 'bg-base text-text-primary border-b-2 border-b-accent'
+                : 'bg-surface text-text-muted hover:text-text-secondary hover:bg-base/50'
               }
             `}
             onClick={() => onTabClick(tab.id)}
@@ -60,10 +62,10 @@ export default function TabBar({ tabs, activeTabId, onTabClick, onTabClose }: Ta
                 onTabClose(tab.id)
               }}
               className={`
-                flex-shrink-0 ml-1 p-0.5 rounded hover:bg-[#45475a] transition-opacity
+                flex-shrink-0 ml-1 p-0.5 rounded hover:bg-hover transition-opacity
                 ${isActive ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'}
               `}
-              title="Close tab"
+              title={t('tabBar.closeTab')}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12" />

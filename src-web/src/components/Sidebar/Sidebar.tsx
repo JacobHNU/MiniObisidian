@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import type { NoteMeta, FileInfo } from '../../ipc/tauri'
 import * as api from '../../ipc/tauri'
+import { useI18n } from '../../i18n'
 import ConfirmDialog from '../ConfirmDialog'
 
 interface SidebarProps {
@@ -57,6 +58,7 @@ export default function Sidebar({
   onClose,
   onSwitchVault,
 }: SidebarProps) {
+  const { t } = useI18n()
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['inbox', 'daily']))
   const [filter, setFilter] = useState('')
   const [creatingFolder, setCreatingFolder] = useState(false)
@@ -359,13 +361,13 @@ export default function Sidebar({
         try {
           const base64Data = await api.readFileBase64(note.path)
           if (!base64Data) {
-            alert('无法打开PDF文件: 返回数据为空')
+            alert(t('sidebar.cannotOpenPdf'))
             return
           }
           onOpenPdf(base64Data, displayTitle, note.id)
         } catch (e) {
           console.error('[PDF] Failed to open PDF:', e)
-          alert('无法打开PDF文件: ' + String(e))
+          alert(t('sidebar.cannotOpenPdfPrefix') + String(e))
         }
       } else {
         onSelectNote(note.id)
@@ -408,7 +410,7 @@ export default function Sidebar({
         data-custom-context-menu="true"
         draggable={!isRenaming}
         className={`folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group ${
-          currentNoteId === note.id ? 'active bg-[#45475a]' : ''
+          currentNoteId === note.id ? 'active bg-hover' : ''
         } ${isDragging ? 'opacity-50' : ''}`}
         style={{ paddingLeft: `${paddingLeft}px` }}
         onClick={handleClick}
@@ -423,13 +425,13 @@ export default function Sidebar({
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
       >
         {isPdf ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red">
             <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
             <polyline points="14,2 14,8 20,8" />
             <path d="M9 15l2 2 4-4" />
           </svg>
         ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted">
             <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
             <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
           </svg>
@@ -446,23 +448,23 @@ export default function Sidebar({
             }}
             onBlur={confirmRename}
             onClick={(e) => e.stopPropagation()}
-            className="flex-1 bg-[#313244] text-sm text-[#cdd6f4] outline-none border border-[#cba6f7] rounded px-1 py-0"
+            className="flex-1 bg-muted text-sm text-text-primary outline-none border border-accent rounded px-1 py-0"
           />
         ) : (
-          <span className="text-[#cdd6f4] truncate flex-1">{displayTitle}</span>
+          <span className="text-text-primary truncate flex-1">{displayTitle}</span>
         )}
         <button
           onClick={(e) => {
             e.stopPropagation()
             setConfirmDialog({
               isOpen: true,
-              title: '删除笔记',
-              message: `确定要删除「${displayTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+              title: t('sidebar.deleteNote'),
+              message: t('sidebar.deleteNoteConfirm', { name: displayTitle }),
               onConfirm: () => { onDeleteNote(note.id); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
             })
           }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#585b70] text-[#6c7086] hover:text-[#f38ba8] transition-opacity"
-          title="Delete"
+          className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-subtle text-text-muted hover:text-red transition-opacity"
+          title={t('sidebar.delete')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
@@ -473,26 +475,26 @@ export default function Sidebar({
   }
 
   return (
-    <div className="w-[280px] flex-shrink-0 bg-[#1e1e2e] border-r border-[#313244] flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#313244]">
-        <span className="text-sm font-semibold text-[#cba6f7]">Explorer</span>
+    <div className="w-[280px] flex-shrink-0 bg-base border-r border-border-muted flex flex-col h-full">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border-muted">
+        <span className="text-sm font-semibold text-accent">{t('sidebar.explorer')}</span>
         <div className="flex gap-1">
-          <button onClick={() => onCreateDailyNote()} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#a6e3a1]" title="Today's Daily Note">
+          <button onClick={() => onCreateDailyNote()} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-green" title={t('sidebar.todayDailyNote')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
             </svg>
           </button>
-          <button onClick={() => setCreatingFolder(true)} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#f9e2af]" title="New Folder (Notebook)">
+          <button onClick={() => setCreatingFolder(true)} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-yellow" title={t('sidebar.newFolder')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /><path d="M12 11v6M9 14h6" />
             </svg>
           </button>
-          <button onClick={onCreateNote} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#cdd6f4]" title="New Note">
+          <button onClick={onCreateNote} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-text-primary" title={t('sidebar.newNote')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6M12 18v-6M9 15h6" />
             </svg>
           </button>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#313244] text-[#a6adc8] hover:text-[#cdd6f4]" title="Close sidebar">
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-text-primary" title={t('sidebar.closeSidebar')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />
             </svg>
@@ -501,8 +503,8 @@ export default function Sidebar({
       </div>
 
       <div className="px-3 py-2">
-        <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter notes..."
-          className="w-full px-2.5 py-1.5 text-sm bg-[#313244] border border-[#45475a] rounded text-[#cdd6f4] placeholder-[#6c7086] focus:outline-none focus:border-[#cba6f7]" />
+        <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('sidebar.filterNotes')}
+          className="w-full px-2.5 py-1.5 text-sm bg-muted border border-border-hover rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent" />
       </div>
 
       <div className="flex-1 overflow-y-auto px-1 py-1"
@@ -511,19 +513,19 @@ export default function Sidebar({
         onDrop={(e) => handleDrop(e, '')}
       >
         <div className="px-2 py-1.5 flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6c7086]">Notebooks</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.notebooks')}</span>
           {dragState.isDragging && (dragState.dropTargetPath === null || dragState.dropTargetPath === '') && (
-            <span className="text-[10px] text-[#89b4fa] animate-pulse">放置到根目录</span>
+            <span className="text-[10px] text-blue animate-pulse">{t('sidebar.dropToRoot')}</span>
           )}
         </div>
 
         {creatingFolder && (
-          <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-[#313244]">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="#f9e2af" stroke="none"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+          <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-muted">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="text-yellow"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
             <input ref={folderInputRef} type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') } }}
-              onBlur={handleCreateFolder} placeholder="Folder name..."
-              className="flex-1 bg-transparent text-sm text-[#cdd6f4] outline-none placeholder-[#6c7086]" />
+              onBlur={handleCreateFolder} placeholder={t('sidebar.folderName')}
+              className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder-text-muted" />
           </div>
         )}
 
@@ -538,8 +540,8 @@ export default function Sidebar({
           onDragOver={handleFolderDragOver} onDrop={handleDrop}
           dropTargetPath={dragState.dropTargetPath} />
 
-        <div className="px-2 py-1.5 mt-3 border-t border-[#313244]">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#6c7086]">Daily Notes</span>
+        <div className="px-2 py-1.5 mt-3 border-t border-border-muted">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.dailyNotes')}</span>
         </div>
         
         <DailyTree tree={dailyTree} expanded={expanded} currentNoteId={currentNoteId}
@@ -551,128 +553,128 @@ export default function Sidebar({
           }} />
       </div>
 
-      <div className="px-3 py-2 border-t border-[#313244] flex items-center justify-between">
-        <span className="text-xs text-[#6c7086]">{notes.length} notes</span>
+      <div className="px-3 py-2 border-t border-border-muted flex items-center justify-between">
+        <span className="text-xs text-text-muted">{t('sidebar.notesCount', { count: notes.length })}</span>
         <button
           onClick={onSwitchVault}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[#a6adc8] hover:bg-[#313244] hover:text-[#cba6f7] transition-colors"
-          title="Switch Vault"
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-text-secondary hover:bg-muted hover:text-accent transition-colors"
+          title={t('sidebar.switchVault')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
             <path d="M12 11v6M9 14l3 3 3-3" />
           </svg>
-          Switch Vault
+          {t('sidebar.switchVault')}
         </button>
       </div>
 
       {contextMenu && (
-        <div className="fixed z-50 bg-[#313244] border border-[#45475a] rounded-lg shadow-xl py-1 min-w-[180px]"
+        <div className="fixed z-50 bg-muted border border-border-hover rounded-lg shadow-xl py-1 min-w-[180px]"
           style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
           {contextMenu.type === 'folder' && (
             <>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => onCreateNoteInFolder(contextMenu.folderPath!)}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6M12 18v-6M9 15h6" /></svg>
-                New Note
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6M12 18v-6M9 15h6" /></svg>
+                  {t('sidebar.newNote')}
               </button>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { setCreatingSubFolder(contextMenu.folderPath!); setContextMenu(null) }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /><path d="M12 11v6M9 14h6" /></svg>
-                New Subfolder
+                {t('sidebar.newSubfolder')}
               </button>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => {
                   if (contextMenu.folderPath) api.showInFolder(contextMenu.folderPath + '/')
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
-                Show in Folder
+                {t('sidebar.showInFolder')}
               </button>
-              <div className="border-t border-[#45475a] my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
+              <div className="border-t border-border-hover my-1" />
+              <button className="w-full text-left px-3 py-1.5 text-sm text-red hover:bg-hover flex items-center gap-2"
                 onClick={() => {
                   if (contextMenu.folderPath) {
                     setConfirmDialog({
                       isOpen: true,
-                      title: '删除文件夹',
-                      message: `确定要删除「${contextMenu.folderPath}」文件夹及其所有笔记吗？文件夹内的笔记将移入回收站，可在 .vault/trash 中找回。`,
+                      title: t('sidebar.deleteFolderTitle'),
+                      message: t('sidebar.deleteFolderConfirm', { name: contextMenu.folderPath }),
                       onConfirm: () => { onDeleteFolder(contextMenu.folderPath!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
                     })
                   }
                   setContextMenu(null)
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                Delete Folder
+                {t('sidebar.deleteFolder')}
               </button>
             </>
           )}
           {contextMenu.type === 'note' && (
             <>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => startRename(contextMenu.noteId!, contextMenu.noteTitle || '')}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
-                Rename
+                {t('sidebar.rename')}
               </button>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => {
                   const note = notes.find(n => n.id === contextMenu.noteId)
                   if (note) api.showInFolder(note.path)
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /><path d="M12 11v6M9 14h6" /></svg>
-                Show in Folder
+                {t('sidebar.showInFolder')}
               </button>
-              <div className="border-t border-[#45475a] my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
+              <div className="border-t border-border-hover my-1" />
+              <button className="w-full text-left px-3 py-1.5 text-sm text-red hover:bg-hover flex items-center gap-2"
                 onClick={() => {
-                  const noteTitle = contextMenu.noteTitle || '此笔记'
+                  const noteTitle = contextMenu.noteTitle || t('sidebar.thisNote')
                   setConfirmDialog({
                     isOpen: true,
-                    title: '删除笔记',
-                    message: `确定要删除「${noteTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+                    title: t('sidebar.deleteNote'),
+                    message: t('sidebar.deleteNoteConfirm', { name: noteTitle }),
                     onConfirm: () => { onDeleteNote(contextMenu.noteId!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
                   })
                   setContextMenu(null)
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                Delete
+                {t('sidebar.delete')}
               </button>
             </>
           )}
           {contextMenu.type === 'daily' && (
             <>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { onCreateDailyNote(); setContextMenu(null) }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                Today's Note
+                {t('sidebar.todaysNote')}
               </button>
 
               {contextMenu.noteId && (
                 <>
-                  <div className="border-t border-[#45475a] my-1" />
-                  <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+                  <div className="border-t border-border-hover my-1" />
+                  <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                     onClick={() => {
                       const note = notes.find(n => n.id === contextMenu.noteId);
                       if (note) api.showInFolder(note.path);
                       setContextMenu(null);
                     }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /><path d="M12 11v6M9 14h6" /></svg>
-                    Show in Folder
+                    {t('sidebar.showInFolder')}
                   </button>
-                  <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
+                  <button className="w-full text-left px-3 py-1.5 text-sm text-red hover:bg-hover flex items-center gap-2"
                     onClick={() => {
-                      const noteTitle = contextMenu.noteTitle || notes.find(n => n.id === contextMenu.noteId)?.title || '此笔记'
+                      const noteTitle = contextMenu.noteTitle || notes.find(n => n.id === contextMenu.noteId)?.title || t('sidebar.thisNote')
                       setConfirmDialog({
                         isOpen: true,
-                        title: '删除笔记',
-                        message: `确定要删除「${noteTitle}」吗？该笔记将移入回收站，可在 .vault/trash 中找回。`,
+                        title: t('sidebar.deleteNote'),
+                        message: t('sidebar.deleteNoteConfirm', { name: noteTitle }),
                         onConfirm: () => { onDeleteNote(contextMenu.noteId!); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
                       })
                       setContextMenu(null)
                     }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                    Delete This Note
+                    {t('sidebar.deleteThisNote')}
                   </button>
                 </>
               )}
@@ -680,15 +682,15 @@ export default function Sidebar({
           )}
           {contextMenu.type === 'daily-year' && (
             <>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { onCreateDailyNote(); setContextMenu(null) }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                Today's Note
+                {t('sidebar.todaysNote')}
               </button>
-              <div className="border-t border-[#45475a] my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <div className="border-t border-border-hover my-1" />
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { 
                   if (contextMenu.year && contextMenu.year !== 'daily') {
                     const folderPath = `daily/${contextMenu.year}`
@@ -698,21 +700,21 @@ export default function Sidebar({
                   setContextMenu(null) 
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
-                Show in Folder
+                {t('sidebar.showInFolder')}
               </button>
             </>
           )}
           {contextMenu.type === 'daily-month' && (
             <>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { onCreateDailyNote(); setContextMenu(null) }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                 </svg>
-                Today's Note
+                {t('sidebar.todaysNote')}
               </button>
-              <div className="border-t border-[#45475a] my-1" />
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2"
+              <div className="border-t border-border-hover my-1" />
+              <button className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-hover flex items-center gap-2"
                 onClick={() => { 
                   if (contextMenu.year && contextMenu.month) {
                     const folderPath = `daily/${contextMenu.year}/${contextMenu.month}`
@@ -722,23 +724,23 @@ export default function Sidebar({
                   setContextMenu(null) 
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" /></svg>
-                Show in Folder
+                {t('sidebar.showInFolder')}
               </button>
-              <button className="w-full text-left px-3 py-1.5 text-sm text-[#f38ba8] hover:bg-[#45475a] flex items-center gap-2"
+              <button className="w-full text-left px-3 py-1.5 text-sm text-red hover:bg-hover flex items-center gap-2"
                 onClick={() => { 
                   if (contextMenu.year && contextMenu.month) {
                     const folderPath = `daily/${contextMenu.year}/${contextMenu.month}`
                     setConfirmDialog({
                       isOpen: true,
-                      title: '删除月份文件夹',
-                      message: `确定要删除「${contextMenu.year}年${contextMenu.month}月」文件夹及其所有笔记吗？文件夹内的笔记将移入回收站，可在 .vault/trash 中找回。`,
+                      title: t('sidebar.deleteMonthFolder'),
+                      message: t('sidebar.deleteMonthConfirm', { year: contextMenu.year, month: contextMenu.month }),
                       onConfirm: () => { onDeleteFolder(folderPath); setConfirmDialog(prev => ({ ...prev, isOpen: false })) },
                     })
                   }
                   setContextMenu(null) 
                 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
-                Delete Month (and notes)
+                {t('sidebar.deleteMonthAndNotes')}
               </button>
             </>
           )}
@@ -773,6 +775,7 @@ interface FolderTreeProps {
 function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onSelectNote, onDeleteNote, onCreateNoteInFolder, onFolderContextMenu,
   creatingSubFolder, subFolderName, onSubFolderNameChange, onConfirmSubFolder, onCancelSubFolder, renderNoteItem,
   onDragOver, onDrop, dropTargetPath }: FolderTreeProps) {
+  const { t } = useI18n()
   const isExpanded = expanded.has(node.path)
   const isDropTarget = dropTargetPath === node.path
   const [files, setFiles] = useState<FileInfo[]>(node.files || [])
@@ -793,7 +796,7 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onSelectNo
       {node.path && (
         <div data-custom-context-menu="true"
           className={`folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group transition-all ${
-            isDropTarget ? 'bg-[#89b4fa]/20 border border-[#89b4fa] scale-[1.02]' : ''
+            isDropTarget ? 'bg-blue/20 border border-blue scale-[1.02]' : ''
           }`}
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
           onClick={() => onToggle(node.path)}
@@ -802,18 +805,18 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onSelectNo
           onDragOver={onDragOver ? (e) => onDragOver(e, node.path, node.name) : (e) => e.preventDefault()}
           onDrop={onDrop ? (e) => onDrop(e, node.path) : undefined}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2"
-            className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={isDropTarget ? '#89b4fa' : '#f9e2af'} stroke="none">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            className={`text-text-muted transition-transform ${isExpanded ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={isDropTarget ? 'var(--blue)' : 'var(--yellow)'} stroke="none">
             <path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
-            {isDropTarget && <path d="M12 8v6m-3-3h6" stroke="#1e1e2e" strokeWidth="2" fill="none" />}
+            {isDropTarget && <path d="M12 8v6m-3-3h6" stroke="currentColor" strokeWidth="2" fill="none" className="text-text-inverse" />}
           </svg>
-          <span className={`truncate flex-1 ${isDropTarget ? 'text-[#89b4fa] font-medium' : 'text-[#cdd6f4]'}`}>{node.name}</span>
+          <span className={`truncate flex-1 ${isDropTarget ? 'text-blue font-medium' : 'text-text-primary'}`}>{node.name}</span>
           {isDropTarget && (
-            <span className="text-[10px] text-[#89b4fa] animate-pulse">放置</span>
+            <span className="text-[10px] text-blue animate-pulse">{t('sidebar.dropHere')}</span>
           )}
           <button onClick={(e) => { e.stopPropagation(); onCreateNoteInFolder(node.path) }}
-            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#585b70] text-[#6c7086] hover:text-[#cdd6f4] transition-opacity" title="New note here">
+            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-subtle text-text-muted hover:text-text-primary transition-opacity" title={t('sidebar.newNoteHere')}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
           </button>
         </div>
@@ -821,26 +824,26 @@ function FolderTree({ node, expanded, currentNoteId, depth, onToggle, onSelectNo
       {(isExpanded || !node.path) && (
         <div>
           {creatingSubFolder === node.path && (
-            <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-[#313244]"
+            <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-muted"
               style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="#f9e2af" stroke="none"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="text-yellow"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
               <input autoFocus type="text" value={subFolderName} onChange={(e) => onSubFolderNameChange(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') onConfirmSubFolder(); if (e.key === 'Escape') onCancelSubFolder() }}
-                onBlur={onConfirmSubFolder} placeholder="Subfolder name..."
-                className="flex-1 bg-transparent text-sm text-[#cdd6f4] outline-none placeholder-[#6c7086]" />
+                onBlur={onConfirmSubFolder} placeholder={t('sidebar.subfolderName')}
+                className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder-text-muted" />
             </div>
           )}
           {loading && (
-            <div className="px-2 py-1 text-xs text-[#6c7086]" style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
-              Loading...
+            <div className="px-2 py-1 text-xs text-text-muted" style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
+              {t('sidebar.loading')}
             </div>
           )}
           {files.map((file) => (
-            <div key={file.path} className="flex items-center gap-1.5 px-2 py-1 rounded text-sm text-[#a6adc8]"
+            <div key={file.path} className="flex items-center gap-1.5 px-2 py-1 rounded text-sm text-text-secondary"
               style={{ paddingLeft: `${(node.path ? depth + 1 : depth) * 12 + 24}px` }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#89b4fa" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
               <span className="truncate">{file.name}</span>
-              <span className="text-xs text-[#6c7086] ml-auto">{(file.size / 1024).toFixed(1)} KB</span>
+              <span className="text-xs text-text-muted ml-auto">{(file.size / 1024).toFixed(1)} KB</span>
             </div>
           ))}
           {node.children.map((child) => (
@@ -869,6 +872,7 @@ interface DailyTreeProps {
 }
 
 function DailyTree({ tree, expanded, currentNoteId, onToggle, renderNoteItem, onDailyContextMenu, onCreateDailyNote }: DailyTreeProps) {
+  const { t } = useI18n()
   const [creatingDate, setCreatingDate] = useState<string | null>(null)
   const [dateInput, setDateInput] = useState('')
 
@@ -891,10 +895,10 @@ function DailyTree({ tree, expanded, currentNoteId, onToggle, renderNoteItem, on
     return (
       <div 
         data-custom-context-menu="true"
-        className="px-4 py-3 text-xs text-[#6c7086] text-center cursor-pointer hover:bg-[#313244] rounded mx-2"
+        className="px-4 py-3 text-xs text-text-muted text-center cursor-pointer hover:bg-muted rounded mx-2"
         onContextMenu={(e) => onDailyContextMenu(e, 'section')}
       >
-        Click the calendar icon or right-click to create a daily note
+        {t('sidebar.dailyNoteHint')}
       </div>
     )
   }
@@ -905,12 +909,12 @@ function DailyTree({ tree, expanded, currentNoteId, onToggle, renderNoteItem, on
           <div data-custom-context-menu="true" className="folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group"
             style={{ paddingLeft: '8px' }} onClick={() => onToggle(yearNode.path)}
             onContextMenu={(e) => onDailyContextMenu(e, 'daily-year', undefined, yearNode.name)}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2"
-              className={`transition-transform ${expanded.has(yearNode.path) ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#89b4fa" strokeWidth="2">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              className={`text-text-muted transition-transform ${expanded.has(yearNode.path) ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
             </svg>
-            <span className="text-[#89b4fa] font-medium">{yearNode.name}</span>
+            <span className="text-blue font-medium">{yearNode.name}</span>
           </div>
           {expanded.has(yearNode.path) && yearNode.children.map((monthNode) => {
             // Extract month number from path (daily/YYYY/MM)
@@ -922,24 +926,24 @@ function DailyTree({ tree, expanded, currentNoteId, onToggle, renderNoteItem, on
                 <div data-custom-context-menu="true" className="folder-item flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none text-sm group"
                   style={{ paddingLeft: '24px' }} onClick={() => onToggle(monthNode.path)}
                   onContextMenu={(e) => onDailyContextMenu(e, 'daily-month', undefined, yearNode.name, monthNum)}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6c7086" strokeWidth="2"
-                    className={`transition-transform ${expanded.has(monthNode.path) ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
-                  <span className="text-[#a6adc8]">{monthNode.name}</span>
-                  <span className="text-[10px] text-[#6c7086] ml-auto">{monthNode.notes.length}</span>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    className={`text-text-muted transition-transform ${expanded.has(monthNode.path) ? 'rotate-90' : ''}`}><path d="M9 18l6-6-6-6" /></svg>
+                  <span className="text-text-secondary">{monthNode.name}</span>
+                  <span className="text-[10px] text-text-muted ml-auto">{monthNode.notes.length}</span>
                   <button 
                     onClick={(e) => {
                       e.stopPropagation()
                       handleCreateInMonth(yearNode.name, monthNum)
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#585b70] text-[#6c7086] hover:text-[#a6e3a1] transition-opacity"
-                    title="Create note in this month"
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-subtle text-text-muted hover:text-green transition-opacity"
+                    title={t('sidebar.createNoteInMonth')}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
                   </button>
                 </div>
                 {isCreating && (
                   <div className="flex items-center gap-1.5 px-2 py-1" style={{ paddingLeft: '40px' }}>
-                    <span className="text-[#6c7086] text-xs">{yearNode.name}-{monthNum}-</span>
+                    <span className="text-text-muted text-xs">{yearNode.name}-{monthNum}-</span>
                     <input 
                       autoFocus
                       type="number"
@@ -956,7 +960,7 @@ function DailyTree({ tree, expanded, currentNoteId, onToggle, renderNoteItem, on
                         else setCreatingDate(null)
                       }}
                       placeholder="DD"
-                      className="w-10 bg-[#313244] text-sm text-[#cdd6f4] rounded px-1 py-0.5 outline-none border border-[#45475a] focus:border-[#cba6f7]"
+                      className="w-10 bg-muted text-sm text-text-primary rounded px-1 py-0.5 outline-none border border-border-hover focus:border-accent"
                     />
                   </div>
                 )}

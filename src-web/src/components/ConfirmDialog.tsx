@@ -42,19 +42,19 @@ export default function ConfirmDialog({
   if (!isOpen) return null
 
   const confirmBtnClass = variant === 'danger'
-    ? 'bg-[#f38ba8] hover:bg-[#e06080] text-[#1e1e2e]'
-    : 'bg-[#f9e2af] hover:bg-[#e6c97a] text-[#1e1e2e]'
+    ? 'bg-red hover:bg-red/80 text-text-inverse'
+    : 'bg-yellow hover:bg-yellow/80 text-text-inverse'
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" onClick={onCancel}>
       <div
-        className="bg-[#1e1e2e] rounded-lg shadow-2xl w-[400px] border border-[#45475a] overflow-hidden"
+        className="bg-base rounded-lg shadow-2xl w-[400px] border border-border-hover overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-5 pt-5 pb-2 flex items-center gap-3">
           <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-            variant === 'danger' ? 'bg-[#f38ba8]/20' : 'bg-[#f9e2af]/20'
+            variant === 'danger' ? 'bg-red/20' : 'bg-yellow/20'
           }`}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
               stroke={variant === 'danger' ? '#f38ba8' : '#f9e2af'} strokeWidth="2">
@@ -63,19 +63,19 @@ export default function ConfirmDialog({
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
           </div>
-          <h3 className="text-base font-semibold text-[#cdd6f4]">{title}</h3>
+          <h3 className="text-base font-semibold text-text-primary">{title}</h3>
         </div>
 
         {/* Body */}
         <div className="px-5 pb-5 pt-1">
-          <p className="text-sm text-[#a6adc8] leading-relaxed">{message}</p>
+          <p className="text-sm text-text-secondary leading-relaxed">{message}</p>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-[#181825] flex justify-end gap-2">
+        <div className="px-5 py-3 bg-surface flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="px-4 py-1.5 text-sm text-[#a6adc8] bg-[#313244] rounded-md hover:bg-[#45475a] transition-colors"
+            className="px-4 py-1.5 text-sm text-text-secondary bg-muted rounded-md hover:bg-hover transition-colors"
           >
             {cancelLabel}
           </button>

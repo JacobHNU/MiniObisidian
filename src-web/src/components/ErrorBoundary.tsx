@@ -48,76 +48,34 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          padding: '2rem',
-          backgroundColor: '#1e1e2e',
-          color: '#cdd6f4',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-        }}>
-          <div style={{
-            maxWidth: '600px',
-            textAlign: 'center',
-          }}>
-            <h2 style={{ color: '#f38ba8', marginBottom: '1rem' }}>
+        <div className="flex flex-col items-center justify-center h-screen p-8 bg-base text-text-primary" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+          <div className="max-w-[600px] text-center">
+            <h2 className="text-red mb-4">
               页面渲染异常
             </h2>
-            <p style={{ color: '#a6adc8', marginBottom: '1.5rem' }}>
+            <p className="text-text-secondary mb-6">
               应用遇到了一个渲染错误，请尝试刷新页面。
             </p>
-            <details style={{
-              marginBottom: '1.5rem',
-              textAlign: 'left',
-              backgroundColor: '#313244',
-              padding: '1rem',
-              borderRadius: '8px',
-              maxHeight: '200px',
-              overflow: 'auto',
-            }}>
-              <summary style={{ cursor: 'pointer', color: '#89b4fa' }}>
+            <details className="mb-6 text-left bg-muted p-4 rounded-lg max-h-[200px] overflow-auto">
+              <summary className="cursor-pointer text-blue">
                 错误详情
               </summary>
-              <pre style={{
-                marginTop: '0.5rem',
-                fontSize: '0.75rem',
-                color: '#f38ba8',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}>
+              <pre className="mt-2 text-xs text-red whitespace-pre-wrap break-words">
                 {this.state.error?.message}
                 {'\n\n'}
                 {this.state.error?.stack}
               </pre>
             </details>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+            <div className="flex gap-4 justify-center">
               <button
                 onClick={this.handleReset}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: '#89b4fa',
-                  color: '#1e1e2e',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                }}
+                className="px-6 py-3 bg-blue text-text-inverse border-none rounded-md cursor-pointer font-bold hover:bg-lavender transition-colors"
               >
                 重试
               </button>
               <button
                 onClick={() => window.location.reload()}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: '#45475a',
-                  color: '#cdd6f4',
-                  border: '1px solid #585b70',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                }}
+                className="px-6 py-3 bg-hover text-text-primary border border-border-subtle rounded-md cursor-pointer hover:bg-subtle transition-colors"
               >
                 刷新页面
               </button>

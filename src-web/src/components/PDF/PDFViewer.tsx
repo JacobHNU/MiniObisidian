@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useI18n } from '../../i18n'
 
 // Dynamic import to avoid top-level await issues in Tauri/Vite
 let pdfjsLib: typeof import('pdfjs-dist') | null = null
@@ -30,6 +31,7 @@ interface PageViewport {
 }
 
 export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProps) {
+  const { t } = useI18n()
   const [pdf, setPdf] = useState<any>(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
@@ -71,7 +73,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
           setOutline([])
         }
       } catch (err) {
-        setError('无法加载PDF文件')
+        setError(t('pdf.loadFailed'))
         console.error('PDF load error:', err)
       } finally {
         setLoading(false)
@@ -212,7 +214,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
               }
             }
           }}
-          className="w-full text-left px-2 py-1 hover:bg-[#45475a] rounded text-sm truncate"
+          className="w-full text-left px-2 py-1 hover:bg-hover rounded text-sm truncate"
         >
           {item.title}
         </button>
@@ -224,14 +226,14 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
   if (!fileData) return null
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#1e1e2e] flex flex-col">
+    <div className="fixed inset-0 z-50 bg-base flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#313244] border-b border-[#45475a]">
+      <div className="flex items-center justify-between px-4 py-2 bg-muted border-b border-border-hover">
         <div className="flex items-center gap-2">
-          <button onClick={onClose} className="px-2 py-1 hover:bg-[#45475a] rounded text-sm">
-            ← 返回
+          <button onClick={onClose} className="px-2 py-1 hover:bg-hover rounded text-sm">
+            {t('pdf.back')}
           </button>
-          <span className="text-sm text-[#cdd6f4] font-medium truncate max-w-[300px]">
+          <span className="text-sm text-text-primary font-medium truncate max-w-[300px]">
             {fileName}
           </span>
         </div>
@@ -241,7 +243,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
           <button
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
             disabled={currentPage <= 1}
-            className="px-2 py-1 hover:bg-[#45475a] rounded text-sm disabled:opacity-50"
+            className="px-2 py-1 hover:bg-hover rounded text-sm disabled:opacity-50"
           >
             ◀
           </button>
@@ -252,32 +254,32 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
               const page = parseInt(e.target.value)
               if (page >= 1 && page <= totalPages) setCurrentPage(page)
             }}
-            className="w-12 text-center bg-[#1e1e2e] border border-[#45475a] rounded px-1 py-0.5 text-sm"
+            className="w-12 text-center bg-base border border-border-hover rounded px-1 py-0.5 text-sm"
           />
-          <span className="text-sm text-[#a6adc8]">/ {totalPages}</span>
+          <span className="text-sm text-text-secondary">/ {totalPages}</span>
           <button
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages}
-            className="px-2 py-1 hover:bg-[#45475a] rounded text-sm disabled:opacity-50"
+            className="px-2 py-1 hover:bg-hover rounded text-sm disabled:opacity-50"
           >
             ▶
           </button>
 
-          <div className="w-px h-4 bg-[#45475a]" />
+          <div className="w-px h-4 bg-hover" />
 
           {/* Zoom */}
           <button
             onClick={() => setScale(s => Math.max(0.5, s - 0.25))}
-            className="px-2 py-1 hover:bg-[#45475a] rounded text-sm"
+            className="px-2 py-1 hover:bg-hover rounded text-sm"
           >
             −
           </button>
-          <span className="text-sm text-[#a6adc8] w-12 text-center">
+          <span className="text-sm text-text-secondary w-12 text-center">
             {Math.round(scale * 100)}%
           </span>
           <button
             onClick={() => setScale(s => Math.min(3, s + 0.25))}
-            className="px-2 py-1 hover:bg-[#45475a] rounded text-sm"
+            className="px-2 py-1 hover:bg-hover rounded text-sm"
           >
             +
           </button>
@@ -285,30 +287,30 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
           {/* Rotation */}
           <button
             onClick={() => setRotation(r => (r + 90) % 360)}
-            className="px-2 py-1 hover:bg-[#45475a] rounded text-sm"
+            className="px-2 py-1 hover:bg-hover rounded text-sm"
           >
             ↻
           </button>
 
-          <div className="w-px h-4 bg-[#45475a]" />
+          <div className="w-px h-4 bg-hover" />
 
           {/* Thumbnails toggle */}
           <button
             onClick={() => setShowThumbnails(!showThumbnails)}
-            className={`px-2 py-1 rounded text-sm ${showThumbnails ? 'bg-[#45475a]' : 'hover:bg-[#45475a]'}`}
+            className={`px-2 py-1 rounded text-sm ${showThumbnails ? 'bg-hover' : 'hover:bg-hover'}`}
           >
-            缩略图
+            {t('pdf.thumbnails')}
           </button>
 
           {/* Outline toggle */}
           <button
             onClick={() => setShowOutline(!showOutline)}
-            className={`px-2 py-1 rounded text-sm ${showOutline ? 'bg-[#45475a]' : 'hover:bg-[#45475a]'}`}
+            className={`px-2 py-1 rounded text-sm ${showOutline ? 'bg-hover' : 'hover:bg-hover'}`}
           >
-            目录
+            {t('pdf.toc')}
           </button>
 
-          <div className="w-px h-4 bg-[#45475a]" />
+          <div className="w-px h-4 bg-hover" />
 
           {/* Search */}
           <input
@@ -317,17 +319,17 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
             onChange={e => setSearchText(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
             placeholder="搜索..."
-            className="w-32 bg-[#1e1e2e] border border-[#45475a] rounded px-2 py-0.5 text-sm"
+            className="w-32 bg-base border border-border-hover rounded px-2 py-0.5 text-sm"
           />
           {searchResults.length > 0 && (
             <>
-              <span className="text-xs text-[#a6adc8]">
+              <span className="text-xs text-text-secondary">
                 {currentSearchIndex + 1}/{searchResults.length}
               </span>
-              <button onClick={prevSearchResult} className="px-1 py-0.5 hover:bg-[#45475a] rounded text-xs">
+              <button onClick={prevSearchResult} className="px-1 py-0.5 hover:bg-hover rounded text-xs">
                 ▲
               </button>
-              <button onClick={nextSearchResult} className="px-1 py-0.5 hover:bg-[#45475a] rounded text-xs">
+              <button onClick={nextSearchResult} className="px-1 py-0.5 hover:bg-hover rounded text-xs">
                 ▼
               </button>
             </>
@@ -339,7 +341,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar - Thumbnails or Outline */}
         {(showThumbnails || showOutline) && (
-          <div className="w-48 bg-[#313244] border-r border-[#45475a] overflow-y-auto p-2">
+          <div className="w-48 bg-muted border-r border-border-hover overflow-y-auto p-2">
             {showThumbnails && (
               <div className="space-y-2">
                 {Array.from({ length: Math.min(totalPages, 20) }, (_, i) => i + 1).map(pageNum => (
@@ -347,7 +349,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
                     key={pageNum}
                     onClick={() => setCurrentPage(pageNum)}
                     className={`cursor-pointer border rounded overflow-hidden ${
-                      currentPage === pageNum ? 'border-[#89b4fa]' : 'border-[#45475a]'
+                      currentPage === pageNum ? 'border-blue' : 'border-border-hover'
                     }`}
                   >
                     <canvas
@@ -356,7 +358,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
                       }}
                       className="w-full"
                     />
-                    <div className="text-center text-xs py-1 bg-[#1e1e2e]">
+                    <div className="text-center text-xs py-1 bg-base">
                       第 {pageNum} 页
                     </div>
                   </div>
@@ -368,7 +370,7 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
                 {outline.length > 0 ? (
                   renderOutline(outline)
                 ) : (
-                  <p className="text-sm text-[#a6adc8] text-center py-4">
+                  <p className="text-sm text-text-secondary text-center py-4">
                     无目录信息
                   </p>
                 )}
@@ -380,16 +382,16 @@ export default function PDFViewer({ fileData, fileName, onClose }: PDFViewerProp
         {/* PDF Canvas */}
         <div
           ref={containerRef}
-          className="flex-1 overflow-auto flex items-start justify-center p-4 bg-[#181825]"
+          className="flex-1 overflow-auto flex items-start justify-center p-4 bg-surface"
         >
           {loading && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-[#cdd6f4]">加载中...</div>
+              <div className="text-text-primary">加载中...</div>
             </div>
           )}
           {error && (
             <div className="flex items-center justify-center h-full">
-              <div className="text-[#f38ba8]">{error}</div>
+              <div className="text-red">{error}</div>
             </div>
           )}
           {!loading && !error && (

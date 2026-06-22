@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useI18n } from '../../i18n'
 
 interface SelectionToolbarProps {
   containerRef: React.RefObject<HTMLElement>
@@ -6,6 +7,7 @@ interface SelectionToolbarProps {
 }
 
 export default function SelectionToolbar({ containerRef, onSendToAI }: SelectionToolbarProps) {
+  const { t } = useI18n()
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   const [selectedText, setSelectedText] = useState('')
   const toolbarRef = useRef<HTMLDivElement>(null)
@@ -111,15 +113,15 @@ export default function SelectionToolbar({ containerRef, onSendToAI }: Selection
       <button
         onClick={handleClick}
         onMouseDown={(e) => e.preventDefault()} // Prevent losing selection
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] text-xs font-medium shadow-lg hover:bg-[#45475a] hover:border-[#cba6f7] transition-all"
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-muted border border-border-hover rounded-lg text-text-primary text-xs font-medium shadow-lg hover:bg-hover hover:border-accent transition-all"
         title="发送到 AI 问答"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cba6f7" strokeWidth="2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent">
           <circle cx="12" cy="12" r="10" />
           <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3" />
           <line x1="12" y1="17" x2="12.01" y2="17" />
         </svg>
-        <span>AI问答</span>
+        <span>{t('selection.aiQa')}</span>
       </button>
     </div>
   )

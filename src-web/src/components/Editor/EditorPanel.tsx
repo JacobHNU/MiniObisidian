@@ -7,6 +7,7 @@ import rehypeRaw from 'rehype-raw'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import * as api from '../../ipc/tauri'
+import { useI18n } from '../../i18n'
 import CodeMirrorEditor from './CodeMirrorEditor'
 import PDFCanvas from '../PDF/PDFCanvas'
 import SelectionToolbar from './SelectionToolbar'
@@ -98,6 +99,7 @@ const mdComponents = {
 }
 
 export default function EditorPanel({ content, onChange, viewMode, currentNoteId, onWikiLinkClick, isPdf, pdfDataUrl, onSendToAI, onToast }: EditorPanelProps) {
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
@@ -190,14 +192,14 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
     // PDF files cannot be edited
     if (isPdf) {
       return (
-        <div className="h-full w-full flex items-center justify-center bg-[#1e1e2e]">
+        <div className="h-full w-full flex items-center justify-center bg-base">
           <div className="text-center">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="1.5" className="mx-auto mb-4">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mx-auto mb-4 text-red">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
               <polyline points="14,2 14,8 20,8" />
             </svg>
-            <p className="text-[#cdd6f4] text-lg mb-2">PDF 文件不支持编辑</p>
-            <p className="text-[#6c7086] text-sm">请切换到「预览」模式查看 PDF 内容</p>
+            <p className="text-text-primary text-lg mb-2">{t('editor.pdfNotEditable')}</p>
+            <p className="text-text-muted text-sm">{t('editor.switchToPreview')}</p>
           </div>
         </div>
       )
@@ -257,15 +259,15 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
 
       <div
         className={`relative shrink-0 w-[5px] cursor-col-resize group transition-colors ${
-          isDragging ? 'bg-[#cba6f7]' : 'bg-[#313244] hover:bg-[#585b70]'
+          isDragging ? 'bg-accent' : 'bg-muted hover:bg-subtle'
         }`}
         onMouseDown={handleMouseDown}
       >
         <div className="absolute inset-y-0 -left-[4px] -right-[4px]" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="w-[3px] h-[3px] rounded-full bg-[#a6adc8]" />
-          <div className="w-[3px] h-[3px] rounded-full bg-[#a6adc8]" />
-          <div className="w-[3px] h-[3px] rounded-full bg-[#a6adc8]" />
+          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
         </div>
       </div>
 

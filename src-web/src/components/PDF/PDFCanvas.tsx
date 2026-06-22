@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
+import { useI18n } from '../../i18n'
 
 // Cache the resolved worker URL so we only compute it once
 let cachedWorkerUrl: string | null = null
@@ -29,6 +30,7 @@ interface PDFCanvasProps {
 }
 
 export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvasProps) {
+  const { t } = useI18n()
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [scale, setScale] = useState(1.2)
@@ -97,7 +99,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
         console.error(`[PDF] Load failed after ${elapsed.toFixed(0)}ms:`, err)
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('atob') || msg.includes('invalid character')) {
-          setError('PDF 加载失败: 文件数据编码异常，请尝试重新导入该 PDF 文件。')
+          setError(t('pdfCanvas.loadFailed'))
         } else {
           setError('PDF 加载失败: ' + msg)
         }
@@ -277,7 +279,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
   const handleCopy = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      onToast?.('已复制到剪贴板', 'success')
+      onToast?.(t('pdfCanvas.copied'), 'success')
     } catch {
       // Fallback for older browsers
       const textarea = document.createElement('textarea')
@@ -291,7 +293,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
       onToast?.('已复制到剪贴板', 'success')
     }
     setContextMenu(null)
-  }, [onToast])
+  }, [onToast, t])
 
   // Send selected text to AI Q&A
   const handleSendToAI = useCallback((text: string) => {
@@ -301,10 +303,10 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#11111b]">
+      <div className="h-full flex items-center justify-center bg-overlay">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#89b4fa] mx-auto mb-3"></div>
-          <p className="text-[#a6adc8] text-sm">加载 PDF 中...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue mx-auto mb-3"></div>
+          <p className="text-text-secondary text-sm">加载 PDF 中...</p>
         </div>
       </div>
     )
@@ -312,9 +314,9 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center bg-[#11111b]">
+      <div className="h-full flex items-center justify-center bg-overlay">
         <div className="text-center">
-          <p className="text-[#f38ba8] mb-2">{error}</p>
+          <p className="text-red mb-2">{error}</p>
         </div>
       </div>
     )
@@ -374,23 +376,23 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
       `}</style>
 
       {/* Toolbar */}
-      <div className="h-10 bg-[#181825] border-b border-[#313244] flex items-center px-4 gap-3 flex-shrink-0">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f38ba8" strokeWidth="2">
+      <div className="h-10 bg-surface border-b border-border-muted flex items-center px-4 gap-3 flex-shrink-0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red">
           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
           <polyline points="14,2 14,8 20,8" />
         </svg>
-        <span className="text-sm text-[#cdd6f4]">PDF 预览</span>
-        <span className="text-xs text-[#6c7086]">共 {totalPages} 页</span>
-        <span className="text-xs text-[#6c7086]">· 支持文本选中复制</span>
+        <span className="text-sm text-text-primary">PDF 预览</span>
+        <span className="text-xs text-text-muted">{t('pdfCanvas.totalPages', { count: totalPages })}</span>
+        <span className="text-xs text-text-muted">· 支持文本选中复制</span>
         <div className="flex-1" />
-        <button onClick={zoomOut} className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a]">-</button>
-        <span className="text-xs text-[#cdd6f4] w-12 text-center">{Math.round(scale * 100)}%</span>
-        <button onClick={zoomIn} className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a]">+</button>
-        <button onClick={resetZoom} className="px-2 py-1 text-xs bg-[#313244] text-[#a6adc8] rounded hover:bg-[#45475a]">重置</button>
+        <button onClick={zoomOut} className="px-2 py-1 text-xs bg-muted text-text-secondary rounded hover:bg-hover">-</button>
+        <span className="text-xs text-text-primary w-12 text-center">{Math.round(scale * 100)}%</span>
+        <button onClick={zoomIn} className="px-2 py-1 text-xs bg-muted text-text-secondary rounded hover:bg-hover">+</button>
+        <button onClick={resetZoom} className="px-2 py-1 text-xs bg-muted text-text-secondary rounded hover:bg-hover">重置</button>
       </div>
 
       {/* Pages */}
-      <div ref={containerRef} className="flex-1 overflow-y-auto bg-[#11111b] p-4" onContextMenu={handleContextMenu}>
+      <div ref={containerRef} className="flex-1 overflow-y-auto bg-overlay p-4" onContextMenu={handleContextMenu}>
         <div className="flex flex-col items-center gap-4">
           {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
             <div
@@ -407,7 +409,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
                 className="pdf-text-layer"
                 ref={el => { if (el) textLayerRefs.current.set(pageNum, el) }}
               />
-              <div className="text-center text-xs text-[#6c7086] py-1 bg-[#1e1e2e] relative z-10">
+              <div className="text-center text-xs text-text-muted py-1 bg-base relative z-10">
                 第 {pageNum} 页
               </div>
             </div>
@@ -420,7 +422,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
         <div
           ref={contextMenuRef}
           data-custom-context-menu
-          className="fixed z-[100] bg-[#313244] border border-[#45475a] rounded-lg shadow-2xl py-1 min-w-[160px]"
+          className="fixed z-[100] bg-muted border border-border-hover rounded-lg shadow-2xl py-1 min-w-[160px]"
           style={{
             left: contextMenu.x,
             top: contextMenu.y,
@@ -436,7 +438,7 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
             }
           `}</style>
           <button
-            className="w-full px-3 py-2 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
+            className="w-full px-3 py-2 text-left text-sm text-text-primary hover:bg-hover flex items-center gap-2 transition-colors"
             onClick={() => handleCopy(contextMenu.text)}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -446,13 +448,13 @@ export default function PDFCanvas({ base64Data, onSendToAI, onToast }: PDFCanvas
             复制
           </button>
           <button
-            className="w-full px-3 py-2 text-left text-sm text-[#cdd6f4] hover:bg-[#45475a] flex items-center gap-2 transition-colors"
+            className="w-full px-3 py-2 text-left text-sm text-text-primary hover:bg-hover flex items-center gap-2 transition-colors"
             onClick={() => handleSendToAI(contextMenu.text)}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             </svg>
-            发送到AI问答
+            {t('pdfCanvas.sendToAi')}
           </button>
         </div>
       )}

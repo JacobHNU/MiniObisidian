@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useI18n, type TranslationKey } from './i18n'
 import Sidebar from './components/Sidebar/Sidebar'
 import EditorPanel from './components/Editor/EditorPanel'
 import SearchPanel from './components/Search/SearchPanel'
@@ -9,7 +10,7 @@ import SyncPanel from './components/Sync/SyncPanel'
 import BacklinksPanel from './components/Backlinks/BacklinksPanel'
 import TabBar, { Tab } from './components/TabBar/TabBar'
 import ExportPDFDialog, { ExportOptions } from './components/PDF/ExportPDFDialog'
-import SettingsPanel from './components/Settings/SettingsPanel'
+import SettingsPanel, { loadSettings, applyTheme, applyFontSizes } from './components/Settings/SettingsPanel'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
 
@@ -18,7 +19,7 @@ import { useNotes } from './hooks/useNotes'
  * Uses dynamic import so pdfjs-dist is NOT loaded at app startup,
  * avoiding the top-level await error that crashes the entire UI.
  */
-async function extractPdfText(base64Data: string): Promise<string> {
+async function extractPdfText(base64Data: string, t: (key: TranslationKey, params?: Record<string, string | number>) => string): Promise<string> {
   try {
     const pdfjsLib = await import('pdfjs-dist')
     // Configure worker using Vite's ?url import for correct bundled URL
@@ -41,7 +42,7 @@ async function extractPdfText(base64Data: string): Promise<string> {
       const page = await pdf.getPage(i)
       const textContent = await page.getTextContent()
       const pageText = textContent.items.map((item: any) => item.str).join(' ')
-      fullText += `\n[第${i}页]\n${pageText}`
+      fullText += `\n[${t('ai.pageLabel', { num: i })}]\n${pageText}`
     }
     return fullText.trim()
   } catch (err) {
@@ -60,6 +61,7 @@ interface TabState {
 }
 
 export default function App() {
+  const { t } = useI18n()
   const [vaultReady, setVaultReady] = useState(false)
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
@@ -85,6 +87,13 @@ export default function App() {
     const timer = setTimeout(() => setToast(null), 5000)
     return () => clearTimeout(timer)
   }, [toast])
+
+  // Apply saved settings (theme, font sizes) on app startup
+  useEffect(() => {
+    const saved = loadSettings()
+    applyTheme(saved.theme)
+    applyFontSizes(saved.uiFontSize, saved.editorFontSize)
+  }, [])
 
   // Block default browser right-click menu
   useEffect(() => {
@@ -224,7 +233,7 @@ export default function App() {
       // Add new tab
       const newTab: Tab = {
         id: noteId,
-        title: noteTitle || 'Untitled',
+        title: noteTitle || t('app.untitled'),
         filePath: notePath,
       }
       setTabs(prev => [...prev, newTab])
@@ -335,9 +344,9 @@ export default function App() {
       }))
     } catch (e) {
       console.error('Failed to create note:', e)
-      alert('Failed to create note: ' + String(e))
+      alert(t('app.createNoteFailed') + String(e))
     }
-  }, [createNote])
+  }, [createNote, t])
 
   const handleCreateNoteInFolder = useCallback(async (folder: string) => {
     try {
@@ -360,9 +369,9 @@ export default function App() {
       }))
     } catch (e) {
       console.error('Failed to create note:', e)
-      alert('Failed to create note: ' + String(e))
+      alert(t('app.createNoteFailed') + String(e))
     }
-  }, [createNote])
+  }, [createNote, t])
 
   const handleCreateFolder = useCallback(async (folderPath: string) => {
     try {
@@ -454,10 +463,10 @@ export default function App() {
         }
       } catch (e) {
         console.error('Failed to delete note:', e)
-        setToast({ message: '删除笔记失败：' + String(e), type: 'error' })
+        setToast({ message: t('app.deleteNoteFailed') + String(e), type: 'error' })
       }
     },
-    [deleteNote, tabs, handleTabClose]
+    [deleteNote, tabs, handleTabClose, t]
   )
 
   const handleDeleteFolder = useCallback(async (folderPath: string) => {
@@ -471,12 +480,12 @@ export default function App() {
       }
       await refreshNotes()
       await refreshFolders()
-      setToast({ message: '文件夹已删除', type: 'success' })
+      setToast({ message: t('app.folderDeleted'), type: 'success' })
     } catch (e) {
       console.error('Failed to delete folder:', e)
-      setToast({ message: '删除文件夹失败：' + String(e), type: 'error' })
+      setToast({ message: t('app.deleteFolderFailed') + String(e), type: 'error' })
     }
-  }, [tabs, handleTabClose, refreshNotes, refreshFolders])
+  }, [tabs, handleTabClose, refreshNotes, refreshFolders, t])
 
   // Send selected PDF text to AI Q&A panel
   const handleSendToAI = useCallback((text: string) => {
@@ -497,10 +506,10 @@ export default function App() {
         await api.updateNote(noteId, newContent)
       } catch (e) {
         console.error('Failed to write to note:', e)
-        setToast({ message: '写入笔记失败：' + String(e), type: 'error' })
+        setToast({ message: t('app.writeNoteFailed') + String(e), type: 'error' })
       }
     }
-  }, [setToast])
+  }, [setToast, t])
 
   // Create a new note from AI response
   const handleCreateNoteFromAI = useCallback(async (title: string, content: string) => {
@@ -517,21 +526,21 @@ export default function App() {
       }))
     } catch (e) {
       console.error('Failed to create note from AI:', e)
-      setToast({ message: '创建笔记失败：' + String(e), type: 'error' })
+      setToast({ message: t('app.createNoteFailed') + String(e), type: 'error' })
     }
-  }, [createNote, refreshNotes, setToast])
+  }, [createNote, refreshNotes, setToast, t])
 
   const handleMoveNote = useCallback(async (noteId: string, destPath: string) => {
     try {
       await api.moveNote(noteId, destPath)
       await refreshNotes()
       await refreshFolders()
-      setToast({ message: '笔记已移动', type: 'success' })
+      setToast({ message: t('app.noteMoved'), type: 'success' })
     } catch (e) {
       console.error('Failed to move note:', e)
-      setToast({ message: '移动笔记失败：' + String(e), type: 'error' })
+      setToast({ message: t('app.moveNoteFailed') + String(e), type: 'error' })
     }
-  }, [refreshNotes, refreshFolders])
+  }, [refreshNotes, refreshFolders, t])
 
   const handleWikiLinkClick = useCallback(async (noteTitle: string) => {
     const existingNote = notes.find((n) => n.title === noteTitle)
@@ -556,7 +565,7 @@ export default function App() {
   const currentNote = notes.find((n) => n.id === activeTabId)
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#1e1e2e]">
+    <div className="flex h-screen w-screen overflow-hidden bg-base">
       {/* Sidebar */}
       {sidebarOpen && (
         <Sidebar
@@ -592,7 +601,7 @@ export default function App() {
             setViewMode('preview')
 
             // Asynchronously extract PDF text for AI context
-            extractPdfText(base64Data).then((extractedText) => {
+            extractPdfText(base64Data, t).then((extractedText) => {
               if (extractedText) {
                 setTabContents(prev => ({
                   ...prev,
@@ -618,22 +627,22 @@ export default function App() {
       )}
 
       {/* Main content */}
-      <div className="flex-1 min-w-0 flex flex-col bg-[#1e1e2e] overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col bg-base overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-[#181825] border-b border-[#313244] shrink-0">
+        <div className="flex items-center gap-2 px-4 py-2 bg-surface border-b border-border-muted shrink-0">
           {!sidebarOpen && (
             <button
               onClick={() => setSidebarOpen(true)}
-              className="p-1.5 rounded hover:bg-[#313244] text-[#cdd6f4]"
-              title="Toggle sidebar"
+              className="p-1.5 rounded hover:bg-muted text-text-primary"
+              title={t('app.toggleSidebar')}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 12h18M3 6h18M3 18h18" />
               </svg>
             </button>
           )}
-          <div className="flex-1 text-sm text-[#a6adc8] truncate min-w-0">
-            {currentNote?.title || 'No note selected'}
+          <div className="flex-1 text-sm text-text-secondary truncate min-w-0">
+            {currentNote?.title || t('app.noNoteSelected')}
           </div>
           <div className="flex gap-1 shrink-0 items-center">
             {(['edit', 'split', 'preview', 'graph', 'search'] as ViewMode[]).map(
@@ -643,52 +652,52 @@ export default function App() {
                   onClick={() => setViewMode(mode)}
                   className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                     viewMode === mode
-                      ? 'bg-[#cba6f7] text-[#1e1e2e]'
-                      : 'text-[#a6adc8] hover:bg-[#313244]'
+                      ? 'bg-accent text-text-inverse'
+                      : 'text-text-secondary hover:bg-muted'
                   }`}
                 >
                   {mode === 'edit'
-                    ? 'Edit'
+                    ? t('app.edit')
                     : mode === 'split'
-                    ? 'Split'
+                    ? t('app.split')
                     : mode === 'preview'
-                    ? 'Preview'
+                    ? t('app.preview')
                     : mode === 'graph'
-                    ? 'Graph'
-                    : 'Search'}
+                    ? t('app.graph')
+                    : t('app.search')}
                 </button>
               )
             )}
-            <div className="w-px h-4 bg-[#45475a] mx-1" />
+            <div className="w-px h-4 bg-hover mx-1" />
             <button
               onClick={() => setSyncPanelOpen(true)}
-              className="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 text-[#a6adc8] hover:bg-[#313244]"
-              title="Cloud Sync"
+              className="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 text-text-secondary hover:bg-muted"
+              title={t('app.cloudSync')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9" />
               </svg>
-              Sync
+              {t('app.sync')}
             </button>
             <button
               onClick={() => setAiPanelOpen(!aiPanelOpen)}
               className={`px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 ${
                 aiPanelOpen
-                  ? 'bg-[#cba6f7] text-[#1e1e2e]'
-                  : 'text-[#a6adc8] hover:bg-[#313244]'
+                  ? 'bg-accent text-text-inverse'
+                  : 'text-text-secondary hover:bg-muted'
               }`}
-              title="AI Assistant"
+              title={t('app.aiAssistant')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 2a7 7 0 017 7v1a7 7 0 01-14 0V9a7 7 0 017-7z" />
                 <path d="M8 21h8M12 17v4" />
               </svg>
-              AI
+              {t('app.ai')}
             </button>
             <button
               onClick={() => setSettingsOpen(true)}
-              className="px-2 py-1 rounded text-xs font-medium transition-colors text-[#a6adc8] hover:bg-[#313244]"
-              title="Settings"
+              className="px-2 py-1 rounded text-xs font-medium transition-colors text-text-secondary hover:bg-muted"
+              title={t('app.settings')}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="3" />
@@ -739,11 +748,11 @@ export default function App() {
               />
             </>
           ) : (
-            <div className="flex items-center justify-center h-full text-[#6c7086]">
+            <div className="flex items-center justify-center h-full text-text-muted">
               <div className="text-center">
                 <div className="text-6xl mb-4 opacity-30">📝</div>
-                <p className="text-lg">Select a note or create a new one</p>
-                <p className="text-sm mt-2">Press Ctrl+N to create a new note</p>
+                <p className="text-lg">{t('app.selectNoteHint')}</p>
+                <p className="text-sm mt-2">{t('app.createNoteHint')}</p>
               </div>
             </div>
           )}
@@ -798,8 +807,8 @@ export default function App() {
       {toast && (
         <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg shadow-2xl text-sm font-medium flex items-center gap-3 animate-fade-in ${
           toast.type === 'error'
-            ? 'bg-[#f38ba8] text-[#1e1e2e]'
-            : 'bg-[#a6e3a1] text-[#1e1e2e]'
+            ? 'bg-red text-text-inverse'
+            : 'bg-green text-text-inverse'
         }`}>
           <span>{toast.message}</span>
           <button

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import * as api from '../ipc/tauri'
+import { useI18n } from '../i18n'
 
 interface VaultSetupProps {
   onInit: (path: string) => Promise<void>
 }
 
 export default function VaultSetup({ onInit }: VaultSetupProps) {
+  const { t } = useI18n()
   const [path, setPath] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -28,7 +30,7 @@ export default function VaultSetup({ onInit }: VaultSetupProps) {
 
   const handleSubmit = async () => {
     if (!path.trim()) {
-      setError('Please select a folder')
+      setError(t('vault.pleaseSelect'))
       return
     }
     setLoading(true)
@@ -43,19 +45,19 @@ export default function VaultSetup({ onInit }: VaultSetupProps) {
   }
 
   return (
-    <div className="flex items-center justify-center h-screen bg-[#1e1e2e]">
+    <div className="flex items-center justify-center h-screen bg-base">
       <div className="w-full max-w-md p-8">
         <div className="text-center mb-8">
           <div className="text-5xl mb-4">📓</div>
-          <h1 className="text-2xl font-bold text-[#cdd6f4]">MiniObsidian</h1>
-          <p className="text-[#a6adc8] mt-2">
+          <h1 className="text-2xl font-bold text-text-primary">MiniObsidian</h1>
+          <p className="text-text-secondary mt-2">
             Select a folder to store your notes
           </p>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-[#a6adc8] mb-1.5">
+            <label className="block text-sm text-text-secondary mb-1.5">
               Vault Folder
             </label>
             <div className="flex gap-2">
@@ -63,12 +65,12 @@ export default function VaultSetup({ onInit }: VaultSetupProps) {
                 type="text"
                 value={path}
                 onChange={(e) => setPath(e.target.value)}
-                placeholder="/path/to/your/notes"
-                className="flex-1 px-3 py-2 bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] placeholder-[#6c7086] focus:outline-none focus:border-[#cba6f7]"
+                placeholder={t('vault.pathPlaceholder')}
+                className="flex-1 px-3 py-2 bg-muted border border-border-hover rounded-lg text-text-primary placeholder-text-muted focus:outline-none focus:border-accent"
               />
               <button
                 onClick={handleBrowse}
-                className="px-4 py-2 bg-[#313244] border border-[#45475a] rounded-lg text-[#cdd6f4] hover:bg-[#45475a] transition-colors"
+                className="px-4 py-2 bg-muted border border-border-hover rounded-lg text-text-primary hover:bg-hover transition-colors"
               >
                 Browse
               </button>
@@ -76,13 +78,13 @@ export default function VaultSetup({ onInit }: VaultSetupProps) {
           </div>
 
           {error && (
-            <p className="text-sm text-[#f38ba8]">{error}</p>
+            <p className="text-sm text-red">{error}</p>
           )}
 
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="w-full py-2.5 bg-[#cba6f7] text-[#1e1e2e] font-medium rounded-lg hover:bg-[#b4befe] transition-colors disabled:opacity-50"
+            className="w-full py-2.5 bg-accent text-text-inverse font-medium rounded-lg hover:bg-lavender transition-colors disabled:opacity-50"
           >
             {loading ? 'Initializing...' : 'Open Vault'}
           </button>

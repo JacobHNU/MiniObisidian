@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useI18n, type Language } from '../../i18n'
 
 // ── Types ──────────────────────────────────────────────────────────
 type SettingsTab = 'about' | 'appearance' | 'shortcuts'
@@ -9,23 +10,23 @@ interface SettingsPanelProps {
 }
 
 // ── Theme / Font persistence helpers ───────────────────────────────
-const STORAGE_KEY = 'miniobsidian_settings'
+export const STORAGE_KEY = 'miniobsidian_settings'
 
-interface AppSettings {
+export interface AppSettings {
   theme: 'dark' | 'light'
   uiFontSize: number      // global UI font size (px)
   editorFontSize: number  // note content font size (px)
   language: 'zh' | 'en'
 }
 
-const DEFAULT_SETTINGS: AppSettings = {
+export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   uiFontSize: 14,
   editorFontSize: 15,
   language: 'zh',
 }
 
-function loadSettings(): AppSettings {
+export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
@@ -36,23 +37,47 @@ function loadSettings(): AppSettings {
   return { ...DEFAULT_SETTINGS }
 }
 
-function saveSettings(s: AppSettings) {
+export function saveSettings(s: AppSettings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s))
 }
 
+// ── Theme color definitions ────────────────────────────────────────
+const DARK_COLORS: Record<string, string> = {
+  '--bg-base': '#1e1e2e', '--bg-surface': '#181825', '--bg-overlay': '#11111b',
+  '--bg-muted': '#313244', '--bg-hover': '#45475a', '--bg-subtle': '#585b70',
+  '--accent': '#cba6f7', '--red': '#f38ba8', '--blue': '#89b4fa',
+  '--green': '#a6e3a1', '--yellow': '#f9e2af', '--orange': '#fab387',
+  '--pink': '#f5c2e7', '--sky': '#89dceb', '--teal': '#94e2d5',
+  '--lavender': '#b4befe', '--rosewater': '#f5e0dc',
+  '--text-primary': '#cdd6f4', '--text-secondary': '#a6adc8',
+  '--text-muted': '#6c7086', '--text-subtle': '#585b70',
+  '--text-inverse': '#1e1e2e', '--text-overlay': '#5c5f77', '--text-surface': '#45475a',
+  '--border-muted': '#313244', '--border-hover': '#45475a',
+  '--border-subtle': '#585b70', '--border-base': '#1e1e2e',
+}
+const LIGHT_COLORS: Record<string, string> = {
+  '--bg-base': '#eff1f5', '--bg-surface': '#e6e9ef', '--bg-overlay': '#dce0e8',
+  '--bg-muted': '#ccd0da', '--bg-hover': '#bcc0cc', '--bg-subtle': '#9ca0b0',
+  '--accent': '#8839ef', '--red': '#d20f39', '--blue': '#1e66f5',
+  '--green': '#40a02b', '--yellow': '#df8e1d', '--orange': '#fe640b',
+  '--pink': '#ea76cb', '--sky': '#04a5e5', '--teal': '#179299',
+  '--lavender': '#7287fd', '--rosewater': '#dc8a78',
+  '--text-primary': '#4c4f69', '--text-secondary': '#6c6f85',
+  '--text-muted': '#8c8fa1', '--text-subtle': '#7c7f92',
+  '--text-inverse': '#eff1f5', '--text-overlay': '#5c5f77', '--text-surface': '#7c7f92',
+  '--border-muted': '#ccd0da', '--border-hover': '#bcc0cc',
+  '--border-subtle': '#9ca0b0', '--border-base': '#ccd0da',
+}
 // ── Apply theme to document root ───────────────────────────────────
-function applyTheme(theme: 'dark' | 'light') {
+export function applyTheme(theme: 'dark' | 'light') {
   const root = document.documentElement
-  if (theme === 'light') {
-    root.classList.add('light-theme')
-    root.classList.remove('dark-theme')
-  } else {
-    root.classList.add('dark-theme')
-    root.classList.remove('light-theme')
-  }
+  const colors = theme === 'light' ? LIGHT_COLORS : DARK_COLORS
+  Object.entries(colors).forEach(([k, v]) => root.style.setProperty(k, v))
+  root.classList.toggle('light-theme', theme === 'light')
+  root.classList.toggle('dark-theme', theme === 'dark')
 }
 
-function applyFontSizes(uiFontSize: number, editorFontSize: number) {
+export function applyFontSizes(uiFontSize: number, editorFontSize: number) {
   const root = document.documentElement
   root.style.setProperty('--ui-font-size', `${uiFontSize}px`)
   root.style.setProperty('--editor-font-size', `${editorFontSize}px`)
@@ -60,8 +85,9 @@ function applyFontSizes(uiFontSize: number, editorFontSize: number) {
 
 // ── Component ──────────────────────────────────────────────────────
 export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+  const { t, language, setLanguage: setI18nLanguage } = useI18n()
   const [activeTab, setActiveTab] = useState<SettingsTab>('about')
-  const [settings, setSettings] = useState<AppSettings>(loadSettings)
+  const [settings, setSettings] = useState<AppSettings>(loadSettings())
 
   // Apply settings on mount and when they change
   useEffect(() => {
@@ -82,35 +108,36 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }))
-  }, [])
+    if (key === 'language') setI18nLanguage(value as Language)
+  }, [setI18nLanguage])
 
   if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div
-        className="flex rounded-lg overflow-hidden shadow-2xl border border-[#45475a]"
-        style={{ width: 780, height: 520, backgroundColor: '#1e1e2e' }}
+        className="flex rounded-lg overflow-hidden shadow-2xl border border-border-muted bg-base"
+        style={{ width: 780, height: 520 }}
         onClick={e => e.stopPropagation()}
       >
         {/* ── Left Sidebar ─────────────────────────────── */}
-        <div className="w-48 flex-shrink-0 border-r border-[#313244] flex flex-col py-4" style={{ backgroundColor: '#181825' }}>
+        <div className="w-48 flex-shrink-0 border-r border-border-muted flex flex-col py-4 bg-surface">
           <div className="px-4 mb-4">
-            <h2 className="text-sm font-semibold text-[#cdd6f4]">Settings</h2>
+            <h2 className="text-sm font-semibold text-text-primary">{t('settings.title')}</h2>
           </div>
           <nav className="flex-1 flex flex-col gap-0.5 px-2">
             {([
-              { key: 'about',       label: 'About',       icon: AboutIcon },
-              { key: 'appearance',  label: 'Appearance',  icon: AppearanceIcon },
-              { key: 'shortcuts',   label: 'Shortcuts',   icon: ShortcutsIcon },
+              { key: 'about',       label: t('settings.about'),       icon: AboutIcon },
+              { key: 'appearance',  label: t('settings.appearance'),  icon: AppearanceIcon },
+              { key: 'shortcuts',   label: t('settings.shortcuts'),   icon: ShortcutsIcon },
             ] as const).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
                 className={`flex items-center gap-2.5 px-3 py-2 rounded text-sm transition-colors text-left ${
                   activeTab === key
-                    ? 'bg-[#313244] text-[#cdd6f4]'
-                    : 'text-[#a6adc8] hover:bg-[#313244]/50 hover:text-[#cdd6f4]'
+                    ? 'bg-muted text-text-primary'
+                    : 'text-text-secondary hover:bg-muted/50 hover:text-text-primary'
                 }`}
               >
                 <Icon />
@@ -122,10 +149,10 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
           <div className="px-2 mt-auto pt-4">
             <button
               onClick={onClose}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-[#a6adc8] hover:bg-[#313244] hover:text-[#cdd6f4] transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-text-secondary hover:bg-muted hover:text-text-primary transition-colors"
             >
               <CloseIcon />
-              Close
+              {t('settings.close')}
             </button>
           </div>
         </div>
@@ -143,23 +170,24 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
 // ── About Section ──────────────────────────────────────────────────
 function AboutSection({ settings, updateSetting }: { settings: AppSettings; updateSetting: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-8">
       {/* Account */}
-      <Section title="Account">
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-[#313244]/50">
-          <div className="w-10 h-10 rounded-full bg-[#cba6f7] flex items-center justify-center text-[#1e1e2e] font-bold text-sm">
+      <Section title={t('settings.account')}>
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+          <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-text-inverse font-bold text-sm">
             U
           </div>
           <div>
-            <div className="text-sm text-[#cdd6f4] font-medium">Local User</div>
-            <div className="text-xs text-[#a6adc8]">Local mode - no login required</div>
+            <div className="text-sm text-text-primary font-medium">{t('settings.localUser')}</div>
+            <div className="text-xs text-text-secondary">{t('settings.localMode')}</div>
           </div>
         </div>
       </Section>
 
       {/* Language */}
-      <Section title="Language">
+      <Section title={t('settings.language')}>
         <div className="flex gap-2">
           {(['zh', 'en'] as const).map(lang => (
             <button
@@ -167,8 +195,8 @@ function AboutSection({ settings, updateSetting }: { settings: AppSettings; upda
               onClick={() => updateSetting('language', lang)}
               className={`px-4 py-1.5 rounded text-sm transition-colors ${
                 settings.language === lang
-                  ? 'bg-[#cba6f7] text-[#1e1e2e] font-medium'
-                  : 'bg-[#313244] text-[#a6adc8] hover:bg-[#45475a]'
+                  ? 'bg-accent text-text-inverse font-medium'
+                  : 'bg-muted text-text-secondary hover:bg-hover'
               }`}
             >
               {lang === 'zh' ? '中文' : 'English'}
@@ -178,24 +206,23 @@ function AboutSection({ settings, updateSetting }: { settings: AppSettings; upda
       </Section>
 
       {/* Version */}
-      <Section title="Version">
+      <Section title={t('settings.version')}>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-[#cdd6f4]">MiniObsidian</span>
-          <span className="px-2 py-0.5 rounded text-xs bg-[#313244] text-[#a6adc8]">v0.1.0</span>
+          <span className="text-sm text-text-primary">MiniObsidian</span>
+          <span className="px-2 py-0.5 rounded text-xs bg-muted text-text-secondary">v0.1.0</span>
         </div>
       </Section>
 
       {/* Help */}
-      <Section title="Help">
+      <Section title={t('settings.help')}>
         <button
           onClick={() => {
-            // Open a built-in help/tutorial page (could be a local HTML or external URL)
             window.open('https://github.com/miniobsidian/help', '_blank')
           }}
-          className="flex items-center gap-2 px-4 py-2 rounded bg-[#313244] text-[#89b4fa] hover:bg-[#45475a] transition-colors text-sm"
+          className="flex items-center gap-2 px-4 py-2 rounded bg-muted text-blue hover:bg-hover transition-colors text-sm"
         >
           <HelpIcon />
-          Get Help
+          {t('settings.getHelp')}
         </button>
       </Section>
     </div>
@@ -204,42 +231,43 @@ function AboutSection({ settings, updateSetting }: { settings: AppSettings; upda
 
 // ── Appearance Section ─────────────────────────────────────────────
 function AppearanceSection({ settings, updateSetting }: { settings: AppSettings; updateSetting: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void }) {
+  const { t } = useI18n()
   return (
     <div className="space-y-8">
       {/* Theme */}
-      <Section title="Theme">
+      <Section title={t('settings.theme')}>
         <div className="flex gap-3">
           {([
-            { key: 'dark',  label: 'Dark',  bg: '#1e1e2e', border: '#45475a' },
-            { key: 'light', label: 'Light', bg: '#eff1f5', border: '#ccd0da' },
+            { key: 'dark',  label: t('settings.dark'),  bg: '#1e1e2e', border: '#45475a' },
+            { key: 'light', label: t('settings.light'), bg: '#eff1f5', border: '#ccd0da' },
           ] as const).map(({ key, label, bg, border }) => (
             <button
               key={key}
               onClick={() => updateSetting('theme', key)}
               className={`relative flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-colors ${
                 settings.theme === key
-                  ? 'border-[#cba6f7]'
-                  : 'border-transparent hover:border-[#45475a]'
+                  ? 'border-accent'
+                  : 'border-transparent hover:border-border-muted'
               }`}
               style={{ backgroundColor: bg }}
             >
               {/* Mini preview */}
               <div className="w-24 h-16 rounded overflow-hidden" style={{ backgroundColor: bg, border: `1px solid ${border}` }}>
-                <div className="h-3" style={{ backgroundColor: key === 'dark' ? '#181825' : '#e6e9ef' }} />
+                <div className="h-3" style={{ backgroundColor: key === 'dark' ? 'var(--bg-surface)' : 'var(--bg-surface)' }} />
                 <div className="flex h-full">
-                  <div className="w-5" style={{ backgroundColor: key === 'dark' ? '#11111b' : '#dce0e8' }} />
+                  <div className="w-5" style={{ backgroundColor: key === 'dark' ? 'var(--bg-overlay)' : 'var(--bg-overlay)' }} />
                   <div className="flex-1 p-1">
-                    <div className="w-8 h-1 rounded mb-1" style={{ backgroundColor: key === 'dark' ? '#cba6f7' : '#8839ef' }} />
-                    <div className="w-12 h-1 rounded" style={{ backgroundColor: key === 'dark' ? '#6c7086' : '#9ca0b0' }} />
+                    <div className="w-8 h-1 rounded mb-1" style={{ backgroundColor: 'var(--accent)' }} />
+                    <div className="w-12 h-1 rounded" style={{ backgroundColor: 'var(--text-muted)' }} />
                   </div>
                 </div>
               </div>
-              <span className={`text-xs ${settings.theme === key ? 'text-[#cba6f7] font-medium' : key === 'dark' ? 'text-[#a6adc8]' : 'text-[#5c5f77]'}`}>
+              <span className={`text-xs ${settings.theme === key ? 'text-accent font-medium' : key === 'dark' ? 'text-text-secondary' : 'text-text-overlay'}`}>
                 {label}
               </span>
               {settings.theme === key && (
-                <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#cba6f7] flex items-center justify-center">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1e1e2e" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>
+                <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-accent text-text-inverse flex items-center justify-center">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>
                 </div>
               )}
             </button>
@@ -248,51 +276,51 @@ function AppearanceSection({ settings, updateSetting }: { settings: AppSettings;
       </Section>
 
       {/* UI Font Size */}
-      <Section title="Interface Font Size">
+      <Section title={t('settings.uiFontSize')}>
         <div className="flex items-center gap-4">
           <button
             onClick={() => updateSetting('uiFontSize', Math.max(12, settings.uiFontSize - 1))}
-            className="w-8 h-8 rounded bg-[#313244] text-[#cdd6f4] hover:bg-[#45475a] flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded bg-muted text-text-primary hover:bg-hover flex items-center justify-center transition-colors"
           >
             -
           </button>
-          <div className="w-16 text-center text-sm text-[#cdd6f4]">{settings.uiFontSize}px</div>
+          <div className="w-16 text-center text-sm text-text-primary">{settings.uiFontSize}px</div>
           <button
             onClick={() => updateSetting('uiFontSize', Math.min(20, settings.uiFontSize + 1))}
-            className="w-8 h-8 rounded bg-[#313244] text-[#cdd6f4] hover:bg-[#45475a] flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded bg-muted text-text-primary hover:bg-hover flex items-center justify-center transition-colors"
           >
             +
           </button>
           <button
             onClick={() => updateSetting('uiFontSize', DEFAULT_SETTINGS.uiFontSize)}
-            className="ml-2 px-3 py-1 rounded text-xs bg-[#313244] text-[#a6adc8] hover:bg-[#45475a] transition-colors"
+            className="ml-2 px-3 py-1 rounded text-xs bg-muted text-text-secondary hover:bg-hover transition-colors"
           >
-            Reset
+            {t('settings.reset')}
           </button>
         </div>
       </Section>
 
       {/* Editor Font Size */}
-      <Section title="Editor Font Size">
+      <Section title={t('settings.editorFontSize')}>
         <div className="flex items-center gap-4">
           <button
             onClick={() => updateSetting('editorFontSize', Math.max(12, settings.editorFontSize - 1))}
-            className="w-8 h-8 rounded bg-[#313244] text-[#cdd6f4] hover:bg-[#45475a] flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded bg-muted text-text-primary hover:bg-hover flex items-center justify-center transition-colors"
           >
             -
           </button>
-          <div className="w-16 text-center text-sm text-[#cdd6f4]">{settings.editorFontSize}px</div>
+          <div className="w-16 text-center text-sm text-text-primary">{settings.editorFontSize}px</div>
           <button
             onClick={() => updateSetting('editorFontSize', Math.min(24, settings.editorFontSize + 1))}
-            className="w-8 h-8 rounded bg-[#313244] text-[#cdd6f4] hover:bg-[#45475a] flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded bg-muted text-text-primary hover:bg-hover flex items-center justify-center transition-colors"
           >
             +
           </button>
           <button
             onClick={() => updateSetting('editorFontSize', DEFAULT_SETTINGS.editorFontSize)}
-            className="ml-2 px-3 py-1 rounded text-xs bg-[#313244] text-[#a6adc8] hover:bg-[#45475a] transition-colors"
+            className="ml-2 px-3 py-1 rounded text-xs bg-muted text-text-secondary hover:bg-hover transition-colors"
           >
-            Reset
+            {t('settings.reset')}
           </button>
         </div>
       </Section>
@@ -302,10 +330,11 @@ function AppearanceSection({ settings, updateSetting }: { settings: AppSettings;
 
 // ── Shortcuts Section ──────────────────────────────────────────────
 function ShortcutsSection() {
+  const { t } = useI18n()
   return (
-    <div className="flex flex-col items-center justify-center h-full text-[#6c7086]">
+    <div className="flex flex-col items-center justify-center h-full text-text-muted">
       <ShortcutsIcon />
-      <p className="mt-3 text-sm">Shortcuts settings coming soon</p>
+      <p className="mt-3 text-sm">{t('settings.shortcutsComingSoon')}</p>
     </div>
   )
 }
@@ -314,7 +343,7 @@ function ShortcutsSection() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-sm font-semibold text-[#cdd6f4] mb-3">{title}</h3>
+      <h3 className="text-sm font-semibold text-text-primary mb-3">{title}</h3>
       {children}
     </div>
   )
