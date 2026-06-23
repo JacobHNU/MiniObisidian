@@ -260,6 +260,33 @@ const zh: Record<TranslationKey, string> = {
   'vault.browse': '浏览',
   'vault.initializing': '初始化中...',
   'vault.openVault': '打开仓库',
+
+  // Tags
+  'tags.panel': '标签',
+  'tags.newTag': '新建标签',
+  'tags.tagName': '标签名称',
+  'tags.tagColor': '颜色',
+  'tags.tagIcon': '图标',
+  'tags.create': '创建',
+  'tags.cancel': '取消',
+  'tags.save': '保存',
+  'tags.edit': '编辑',
+  'tags.delete': '删除',
+  'tags.noTags': '暂无标签',
+  'tags.createFirst': '创建第一个标签',
+  'tags.noLinkedNotes': '无关联笔记',
+  'tags.selectIcon': '选择图标',
+  'tags.addTag': '标签',
+  'tags.inputPlaceholder': '输入标签名...',
+
+  // Sidebar view
+  'sidebar.files': '文件',
+  'sidebar.tags': '标签',
+
+  // Icons
+  'icons.search': '搜索图标...',
+  'icons.tabIcons': '图标',
+  'icons.tabEmoji': 'Emoji',
 }
 
 export default zh

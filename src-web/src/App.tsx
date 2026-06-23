@@ -11,6 +11,7 @@ import BacklinksPanel from './components/Backlinks/BacklinksPanel'
 import TabBar, { Tab } from './components/TabBar/TabBar'
 import ExportPDFDialog, { ExportOptions } from './components/PDF/ExportPDFDialog'
 import SettingsPanel, { loadSettings, applyTheme, applyFontSizes } from './components/Settings/SettingsPanel'
+import GuideView, { GUIDE_TAB_ID } from './components/Guide/GuideDialog'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
 
@@ -173,6 +174,7 @@ export default function App() {
   // Save a specific tab's content to backend
   // IMPORTANT: Skip PDF tabs to prevent corrupting PDF files
   const saveTab = useCallback(async (tabId: string) => {
+    if (tabId === GUIDE_TAB_ID) return // Guide tab is read-only
     const state = tabContentsRef.current[tabId]
     if (state?.isPdf) return // Never save PDF tabs - they are read-only
     if (state?.content) {
@@ -267,6 +269,18 @@ export default function App() {
       return next
     })
   }, [activeTabId, saveTab])
+
+  // Open guide as a tab in the editor area
+  const handleOpenGuide = useCallback(() => {
+    const existingTab = tabs.find(t => t.id === GUIDE_TAB_ID)
+    if (existingTab) {
+      setActiveTabId(GUIDE_TAB_ID)
+      return
+    }
+    setTabs(prev => [...prev, { id: GUIDE_TAB_ID, title: '新手入门指南', filePath: '' }])
+    setActiveTabId(GUIDE_TAB_ID)
+    setViewMode('preview')
+  }, [tabs])
 
   // Switch active tab
   const handleTabClick = useCallback(async (tabId: string) => {
@@ -486,6 +500,28 @@ export default function App() {
       setToast({ message: t('app.deleteFolderFailed') + String(e), type: 'error' })
     }
   }, [tabs, handleTabClose, refreshNotes, refreshFolders, t])
+
+  // Refresh current note content from disk (called after tag changes)
+  const handleRefreshContent = useCallback(async () => {
+    const tabId = activeTabIdRef.current
+    if (!tabId) return
+    const state = tabContentsRef.current[tabId]
+    if (!state?.filePath || state.isPdf) return
+    // Cancel pending auto-save to prevent overwriting refreshed content
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    try {
+      const content = await api.readNoteByPath(state.filePath)
+      setTabContents(prev => ({
+        ...prev,
+        [tabId]: { ...prev[tabId], content },
+      }))
+    } catch (e) {
+      console.error('Failed to refresh content:', e)
+    }
+  }, [])
 
   // Send selected PDF text to AI Q&A panel
   const handleSendToAI = useCallback((text: string) => {
@@ -727,6 +763,8 @@ export default function App() {
               }}
               notes={notes}
             />
+          ) : activeTabId === GUIDE_TAB_ID ? (
+            <GuideView />
           ) : activeTabId ? (
             <>
               <div className="flex-1 min-h-0 overflow-hidden">
@@ -735,10 +773,12 @@ export default function App() {
                   content={currentContent}
                   onChange={handleContentChange}
                   viewMode={viewMode}
+                  currentNoteId={activeTabId}
                   onWikiLinkClick={handleWikiLinkClick}
                   isPdf={tabContents[activeTabId]?.isPdf}
                   pdfDataUrl={tabContents[activeTabId]?.pdfDataUrl}
                   onSendToAI={handleSendToAI}
+                  onRefreshContent={handleRefreshContent}
                   onToast={(msg, type) => setToast({ message: msg, type })}
                 />
               </div>
@@ -801,6 +841,10 @@ export default function App() {
       <SettingsPanel
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        onOpenGuide={() => {
+          setSettingsOpen(false)
+          handleOpenGuide()
+        }}
       />
 
       {/* Toast Notification */}

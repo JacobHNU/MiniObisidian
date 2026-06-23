@@ -258,6 +258,33 @@ const en = {
   'vault.browse': 'Browse',
   'vault.initializing': 'Initializing...',
   'vault.openVault': 'Open Vault',
+
+  // Tags
+  'tags.panel': 'Tags',
+  'tags.newTag': 'New Tag',
+  'tags.tagName': 'Tag Name',
+  'tags.tagColor': 'Color',
+  'tags.tagIcon': 'Icon',
+  'tags.create': 'Create',
+  'tags.cancel': 'Cancel',
+  'tags.save': 'Save',
+  'tags.edit': 'Edit',
+  'tags.delete': 'Delete',
+  'tags.noTags': 'No tags yet',
+  'tags.createFirst': 'Create your first tag',
+  'tags.noLinkedNotes': 'No linked notes',
+  'tags.selectIcon': 'Select icon',
+  'tags.addTag': 'Tag',
+  'tags.inputPlaceholder': 'Enter tag name...',
+
+  // Sidebar view
+  'sidebar.files': 'Files',
+  'sidebar.tags': 'Tags',
+
+  // Icons
+  'icons.search': 'Search icons...',
+  'icons.tabIcons': 'Icons',
+  'icons.tabEmoji': 'Emoji',
 } as const
 
 export type TranslationKey = keyof typeof en

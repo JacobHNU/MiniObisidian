@@ -3,6 +3,8 @@ import type { NoteMeta, FileInfo } from '../../ipc/tauri'
 import * as api from '../../ipc/tauri'
 import { useI18n } from '../../i18n'
 import ConfirmDialog from '../ConfirmDialog'
+import TagPanel from '../Tags/TagPanel'
+import IconRenderer from '../Icons/IconRenderer'
 
 interface SidebarProps {
   notes: NoteMeta[]
@@ -102,6 +104,8 @@ export default function Sidebar({
   // Click timer refs for distinguishing single/double click on notes
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isDoubleClickRef = useRef(false)
+
+  const [sidebarView, setSidebarView] = useState<'files' | 'tags'>('files')
 
   useEffect(() => {
     const handler = () => {
@@ -502,55 +506,83 @@ export default function Sidebar({
         </div>
       </div>
 
-      <div className="px-3 py-2">
-        <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('sidebar.filterNotes')}
-          className="w-full px-2.5 py-1.5 text-sm bg-muted border border-border-hover rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent" />
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-1 py-1"
-        onDragEnter={handleContainerDragEnter}
-        onDragOver={handleContainerDragOver}
-        onDrop={(e) => handleDrop(e, '')}
-      >
-        <div className="px-2 py-1.5 flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.notebooks')}</span>
-          {dragState.isDragging && (dragState.dropTargetPath === null || dragState.dropTargetPath === '') && (
-            <span className="text-[10px] text-blue animate-pulse">{t('sidebar.dropToRoot')}</span>
-          )}
-        </div>
-
-        {creatingFolder && (
-          <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-muted">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="text-yellow"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
-            <input ref={folderInputRef} type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') } }}
-              onBlur={handleCreateFolder} placeholder={t('sidebar.folderName')}
-              className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder-text-muted" />
+      {sidebarView === 'tags' ? (
+        <TagPanel onSelectNote={onSelectNote} />
+      ) : (
+        <>
+          <div className="px-3 py-2">
+            <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t('sidebar.filterNotes')}
+              className="w-full px-2.5 py-1.5 text-sm bg-muted border border-border-hover rounded text-text-primary placeholder-text-muted focus:outline-none focus:border-accent" />
           </div>
-        )}
 
-        <FolderTree node={notebookTree} expanded={expanded} currentNoteId={currentNoteId} depth={0}
-          onToggle={toggleFolder} onSelectNote={onSelectNote} onDeleteNote={onDeleteNote}
-          onCreateNoteInFolder={onCreateNoteInFolder}
-          onFolderContextMenu={(e, path) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'folder', folderPath: path }) }}
-          creatingSubFolder={creatingSubFolder} subFolderName={subFolderName}
-          onSubFolderNameChange={setSubFolderName} onConfirmSubFolder={handleCreateSubFolder}
-          onCancelSubFolder={() => { setCreatingSubFolder(null); setSubFolderName('') }}
-          renderNoteItem={renderNoteItem}
-          onDragOver={handleFolderDragOver} onDrop={handleDrop}
-          dropTargetPath={dragState.dropTargetPath} />
+          <div className="flex-1 overflow-y-auto px-1 py-1"
+            onDragEnter={handleContainerDragEnter}
+            onDragOver={handleContainerDragOver}
+            onDrop={(e) => handleDrop(e, '')}
+          >
+            <div className="px-2 py-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.notebooks')}</span>
+              {dragState.isDragging && (dragState.dropTargetPath === null || dragState.dropTargetPath === '') && (
+                <span className="text-[10px] text-blue animate-pulse">{t('sidebar.dropToRoot')}</span>
+              )}
+            </div>
 
-        <div className="px-2 py-1.5 mt-3 border-t border-border-muted">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.dailyNotes')}</span>
-        </div>
-        
-        <DailyTree tree={dailyTree} expanded={expanded} currentNoteId={currentNoteId}
-          onToggle={toggleFolder} onSelectNote={onSelectNote} onDeleteNote={onDeleteNote} renderNoteItem={renderNoteItem}
-          onCreateDailyNote={onCreateDailyNote}
-          onDailyContextMenu={(e, type, noteId?, year?, month?) => {
-            e.preventDefault(); e.stopPropagation()
-            setContextMenu({ x: e.clientX, y: e.clientY, type, noteId, year, month })
-          }} />
+            {creatingFolder && (
+              <div className="flex items-center gap-1.5 px-2 py-1 mx-1 rounded bg-muted">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="text-yellow"><path d="M2 6a2 2 0 012-2h5l2 2h9a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" /></svg>
+                <input ref={folderInputRef} type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName('') } }}
+                  onBlur={handleCreateFolder} placeholder={t('sidebar.folderName')}
+                  className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder-text-muted" />
+              </div>
+            )}
+
+            <FolderTree node={notebookTree} expanded={expanded} currentNoteId={currentNoteId} depth={0}
+              onToggle={toggleFolder} onSelectNote={onSelectNote} onDeleteNote={onDeleteNote}
+              onCreateNoteInFolder={onCreateNoteInFolder}
+              onFolderContextMenu={(e, path) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'folder', folderPath: path }) }}
+              creatingSubFolder={creatingSubFolder} subFolderName={subFolderName}
+              onSubFolderNameChange={setSubFolderName} onConfirmSubFolder={handleCreateSubFolder}
+              onCancelSubFolder={() => { setCreatingSubFolder(null); setSubFolderName('') }}
+              renderNoteItem={renderNoteItem}
+              onDragOver={handleFolderDragOver} onDrop={handleDrop}
+              dropTargetPath={dragState.dropTargetPath} />
+
+            <div className="px-2 py-1.5 mt-3 border-t border-border-muted">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">{t('sidebar.dailyNotes')}</span>
+            </div>
+            
+            <DailyTree tree={dailyTree} expanded={expanded} currentNoteId={currentNoteId}
+              onToggle={toggleFolder} onSelectNote={onSelectNote} onDeleteNote={onDeleteNote} renderNoteItem={renderNoteItem}
+              onCreateDailyNote={onCreateDailyNote}
+              onDailyContextMenu={(e, type, noteId?, year?, month?) => {
+                e.preventDefault(); e.stopPropagation()
+                setContextMenu({ x: e.clientX, y: e.clientY, type, noteId, year, month })
+              }} />
+          </div>
+        </>
+      )}
+
+      {/* View toggle */}
+      <div className="flex border-t border-border-muted">
+        <button
+          onClick={() => setSidebarView('files')}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs transition-colors ${
+            sidebarView === 'files' ? 'text-accent bg-muted' : 'text-text-muted hover:text-text-secondary hover:bg-muted/50'
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+          文件
+        </button>
+        <button
+          onClick={() => setSidebarView('tags')}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs transition-colors ${
+            sidebarView === 'tags' ? 'text-accent bg-muted' : 'text-text-muted hover:text-text-secondary hover:bg-muted/50'
+          }`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+          标签
+        </button>
       </div>
 
       <div className="px-3 py-2 border-t border-border-muted flex items-center justify-between">

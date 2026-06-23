@@ -1,7 +1,7 @@
 use crate::AppState;
 use note_core::{service::FileInfo, service::GraphData, NoteService};
 use serde::{Deserialize, Serialize};
-use storage::schema::NoteMeta;
+use storage::schema::{NoteMeta, Tag, FolderMeta};
 use storage::Database;
 use sync_engine::SyncAdapter;
 use tauri::{AppHandle, Emitter, State};
@@ -358,6 +358,154 @@ pub fn show_in_folder(
     }
 
     Ok(())
+}
+
+// ──────────────────────────────────────────────
+// Tag Commands
+// ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn create_tag(
+    state: State<'_, AppState>,
+    name: String,
+    color: Option<String>,
+    icon: Option<String>,
+    description: Option<String>,
+) -> Result<Tag, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let tag = Tag {
+        name: name.clone(),
+        color: color.unwrap_or_else(|| "#cba6f7".to_string()),
+        icon,
+        description: description.unwrap_or_default(),
+        created_at: now,
+    };
+    svc.db().create_tag(&tag).map_err(|e| e.to_string())?;
+    Ok(tag)
+}
+
+#[tauri::command]
+pub fn update_tag(
+    state: State<'_, AppState>,
+    name: String,
+    color: Option<String>,
+    icon: Option<String>,
+    description: Option<String>,
+) -> Result<Tag, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().update_tag(&name, color.as_deref(), icon.as_deref(), description.as_deref()).map_err(|e| e.to_string())?;
+    svc.db().get_tag(&name).map_err(|e| e.to_string())?.ok_or_else(|| "Tag not found".to_string())
+}
+
+#[tauri::command]
+pub fn delete_tag(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().delete_tag(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_tags(state: State<'_, AppState>) -> Result<Vec<Tag>, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().list_tags().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_notes_by_tag(state: State<'_, AppState>, tag_name: String) -> Result<Vec<NoteMeta>, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().get_notes_by_tag(&tag_name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_tag_to_note(state: State<'_, AppState>, note_id: String, tag_name: String) -> Result<NoteMeta, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    let note = svc.db().get_note(&note_id).map_err(|e| e.to_string())?.ok_or("Note not found")?;
+    let mut tags = note.tags.clone();
+    if !tags.contains(&tag_name) {
+        tags.push(tag_name);
+        // Read the raw content, update frontmatter tags, and save
+        let rel_path = &note.path;
+        let abs_path = svc.vault_path().join(rel_path);
+        let raw = std::fs::read_to_string(&abs_path).map_err(|e| e.to_string())?;
+        let parsed = note_core::parser::parse_note(&raw).map_err(|e| e.to_string())?;
+        let mut fm = parsed.frontmatter.clone();
+        fm.tags = tags;
+        let fm_str = note_core::parser::serialize_frontmatter(&fm);
+        let new_raw = format!("{}\n\n{}", fm_str, parsed.body);
+        std::fs::write(&abs_path, &new_raw).map_err(|e| e.to_string())?;
+        svc.update_note(&note_id, &new_raw).map_err(|e| e.to_string())
+    } else {
+        Ok(note)
+    }
+}
+
+#[tauri::command]
+pub fn remove_tag_from_note(state: State<'_, AppState>, note_id: String, tag_name: String) -> Result<NoteMeta, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    let note = svc.db().get_note(&note_id).map_err(|e| e.to_string())?.ok_or("Note not found")?;
+    let mut tags = note.tags.clone();
+    if let Some(pos) = tags.iter().position(|t| t == &tag_name) {
+        tags.remove(pos);
+        let rel_path = &note.path;
+        let abs_path = svc.vault_path().join(rel_path);
+        let raw = std::fs::read_to_string(&abs_path).map_err(|e| e.to_string())?;
+        let parsed = note_core::parser::parse_note(&raw).map_err(|e| e.to_string())?;
+        let mut fm = parsed.frontmatter.clone();
+        fm.tags = tags;
+        let fm_str = note_core::parser::serialize_frontmatter(&fm);
+        let new_raw = format!("{}\n\n{}", fm_str, parsed.body);
+        std::fs::write(&abs_path, &new_raw).map_err(|e| e.to_string())?;
+        svc.update_note(&note_id, &new_raw).map_err(|e| e.to_string())
+    } else {
+        Ok(note)
+    }
+}
+
+// ──────────────────────────────────────────────
+// Icon Commands
+// ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn set_folder_icon(state: State<'_, AppState>, path: String, icon: Option<String>) -> Result<(), String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().set_folder_icon(&path, icon.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_folder_icon(state: State<'_, AppState>, path: String) -> Result<Option<String>, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    let meta = svc.db().get_folder_meta(&path).map_err(|e| e.to_string())?;
+    Ok(meta.and_then(|m| m.icon))
+}
+
+#[tauri::command]
+pub fn list_folder_icons(state: State<'_, AppState>) -> Result<Vec<FolderMeta>, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().list_folder_metas().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_note_icon(state: State<'_, AppState>, note_id: String, icon: Option<String>) -> Result<(), String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().set_note_icon(&note_id, icon.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_note_icon(state: State<'_, AppState>, note_id: String) -> Result<Option<String>, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+    svc.db().get_note_icon(&note_id).map_err(|e| e.to_string())
 }
 
 /// Save a base64-encoded image to the vault's attachments folder

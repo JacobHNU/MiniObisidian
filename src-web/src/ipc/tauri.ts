@@ -267,3 +267,69 @@ export const reportError = (
     context: context || null,
     source: source || null,
   })
+
+export interface Tag {
+  name: string
+  color: string
+  icon: string | null
+  description: string
+  created_at: string
+}
+
+export interface FolderMeta {
+  path: string
+  icon: string | null
+  color: string | null
+}
+
+// ── Tag operations ──
+
+export async function createTag(name: string, color?: string, icon?: string, description?: string): Promise<Tag> {
+  return invoke('create_tag', { name, color: color || null, icon: icon || null, description: description || null })
+}
+
+export async function updateTag(name: string, color?: string, icon?: string, description?: string): Promise<Tag> {
+  return invoke('update_tag', { name, color: color || null, icon: icon || null, description: description || null })
+}
+
+export async function deleteTag(name: string): Promise<void> {
+  return invoke('delete_tag', { name })
+}
+
+export async function listTags(): Promise<Tag[]> {
+  return invoke('list_tags')
+}
+
+export async function getNotesByTag(tagName: string): Promise<NoteMeta[]> {
+  return invoke('get_notes_by_tag', { tagName })
+}
+
+export async function addTagToNote(noteId: string, tagName: string): Promise<NoteMeta> {
+  return invoke('add_tag_to_note', { noteId, tagName })
+}
+
+export async function removeTagFromNote(noteId: string, tagName: string): Promise<NoteMeta> {
+  return invoke('remove_tag_from_note', { noteId, tagName })
+}
+
+// ── Icon operations ──
+
+export async function setFolderIcon(path: string, icon: string | null): Promise<void> {
+  return invoke('set_folder_icon', { path, icon })
+}
+
+export async function getFolderIcon(path: string): Promise<string | null> {
+  return invoke('get_folder_icon', { path })
+}
+
+export async function listFolderIcons(): Promise<FolderMeta[]> {
+  return invoke('list_folder_icons')
+}
+
+export async function setNoteIcon(noteId: string, icon: string | null): Promise<void> {
+  return invoke('set_note_icon', { noteId, icon })
+}
+
+export async function getNoteIcon(noteId: string): Promise<string | null> {
+  return invoke('get_note_icon', { noteId })
+}

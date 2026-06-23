@@ -1,6 +1,6 @@
 ## 个人知识管理系统（MiniObsidian）— 系统架构设计文档
 
-> 版本：1.0 | 日期：2026-06-15 | 技术栈：Tauri 2.x + Rust + React
+> 版本：1.1 | 日期：2026-06-22 | 技术栈：Tauri 2.x + Rust + React
 
 ---
 
@@ -17,9 +17,9 @@
 | 层次 | 选型 | 决策理由 |
 |------|------|----------|
 | 桌面框架 | Tauri 2.x | 包体积仅约 10MB（Electron 约 150MB），内存占用低，Rust 后端性能好且安全 |
-| 前端 UI | React 18 + TailwindCSS | 生态成熟，组件丰富，社区资源多 |
+| 前端 UI | React 18 + TailwindCSS 3.4 | 生态成熟，组件丰富；CSS 变量颜色系统驱动主题切换 |
 | Markdown 渲染 | MDX + remark/rehype 插件链 | 支持 GFM、数学公式、Mermaid 图表等扩展语法 |
-| 编辑器 | CodeMirror 6 | 高性能、可扩展、支持 Vim 模式，适合技术用户 |
+| 编辑器 | CodeMirror 6 | 高性能、可扩展，支持语法高亮和主题适配 |
 | 本地数据库 | SQLite（via rusqlite） | 轻量嵌入式数据库，用于笔记元数据和搜索索引 |
 | 文件监听 | notify（Rust crate） | 跨平台文件系统事件监听，实时感知笔记变更 |
 | 云同步 | 百度网盘 Open API v3 | 用户指定需求，国内覆盖好，免费空间大 |
@@ -535,7 +535,148 @@ CREATE TABLE ai_metadata (
 
 ---
 
-## 七、数据流总览
+## 七、主题系统（Theme System）
+
+### 7.1 架构概览
+
+主题系统采用 **CSS 变量 + Tailwind 语义化颜色** 的双层架构，实现全应用颜色的统一管理和即时切换。
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  用户操作：设置面板切换主题                                 │
+│  SettingsPanel.updateSetting('theme', 'light')           │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  applyTheme('light')                                     │
+│  document.documentElement.style.setProperty('--bg-base',  │
+│    '#eff1f5')                                            │
+│  document.documentElement.classList.add('light-theme')    │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+            ┌───────────┴───────────┐
+            ▼                       ▼
+┌─────────────────────┐  ┌──────────────────────────────┐
+│ Tailwind 语义类      │  │ CSS 直接引用变量              │
+│ bg-base → var(--bg-base) │  │ body { background: var(--bg-base) } │
+│ text-text-primary    │  │ .markdown-preview h1 { color: var(--accent) } │
+│ border-border-muted  │  │ .wiki-link { color: var(--accent) } │
+└─────────────────────┘  └──────────────────────────────┘
+            │                       │
+            └───────────┬───────────┘
+                        ▼
+            所有组件颜色即时切换，无页面刷新
+```
+
+### 7.2 CSS 变量定义
+
+系统定义了 28 个语义化 CSS 变量，分为四类：
+
+| 类别 | 变量 | 深色值（Mocha） | 浅色值（Latte） |
+|------|------|----------------|----------------|
+| 背景 | `--bg-base` | `#1e1e2e` | `#eff1f5` |
+| 背景 | `--bg-surface` | `#181825` | `#e6e9ef` |
+| 背景 | `--bg-overlay` | `#11111b` | `#dce0e8` |
+| 背景 | `--bg-muted` | `#313244` | `#ccd0da` |
+| 背景 | `--bg-hover` | `#45475a` | `#bcc0cc` |
+| 背景 | `--bg-subtle` | `#585b70` | `#9ca0b0` |
+| 强调 | `--accent` | `#cba6f7` | `#8839ef` |
+| 强调 | `--red` | `#f38ba8` | `#d20f39` |
+| 强调 | `--blue` | `#89b4fa` | `#1e66f5` |
+| 强调 | `--green` | `#a6e3a1` | `#40a02b` |
+| 强调 | `--yellow` | `#f9e2af` | `#df8e1d` |
+| 文本 | `--text-primary` | `#cdd6f4` | `#4c4f69` |
+| 文本 | `--text-secondary` | `#a6adc8` | `#6c6f85` |
+| 文本 | `--text-muted` | `#6c7086` | `#8c8fa1` |
+| 边框 | `--border-muted` | `#313244` | `#ccd0da` |
+| 边框 | `--border-hover` | `#45475a` | `#bcc0cc` |
+
+### 7.3 Tailwind 语义化颜色映射
+
+`tailwind.config.js` 将 CSS 变量映射为 Tailwind 工具类，组件中使用语义化类名而非硬编码颜色值：
+
+```javascript
+// tailwind.config.js
+theme: {
+  extend: {
+    colors: {
+      base:          'var(--bg-base)',
+      surface:       'var(--bg-surface)',
+      accent:        'var(--accent)',
+      'text-primary':   'var(--text-primary)',
+      'text-secondary': 'var(--text-secondary)',
+      'border-muted':   'var(--border-muted)',
+      // ... 共 28 个映射
+    },
+  },
+},
+```
+
+组件中使用方式：
+
+```tsx
+// 正确 — 使用语义化类名，自动跟随主题
+<div className="bg-base text-text-primary border border-border-muted">
+
+// 错误 — 硬编码颜色，不响应主题切换
+<div className="bg-[#1e1e2e] text-[#cdd6f4] border border-[#313244]">
+```
+
+### 7.4 状态管理与持久化
+
+主题设置通过 `SettingsPanel` 组件管理，使用 `localStorage` 持久化：
+
+```typescript
+interface AppSettings {
+  theme: 'dark' | 'light'
+  uiFontSize: number
+  editorFontSize: number
+  language: 'zh' | 'en'
+}
+
+// 应用启动时加载并应用
+const settings = loadSettings()  // 从 localStorage 读取
+applyTheme(settings.theme)       // 设置 CSS 变量 + class
+applyFontSizes(settings.uiFontSize, settings.editorFontSize)
+```
+
+### 7.5 CodeMirror 编辑器主题适配
+
+CodeMirror 编辑器通过 JS `EditorView.theme()` 定义深色主题（硬编码颜色），亮色主题通过 CSS 覆盖规则实现：
+
+```css
+/* 深色主题由 JS 注入（catppuccinTheme），亮色通过 CSS 覆盖 */
+.light-theme .cm-editor { color: var(--text-primary) !important; }
+.light-theme .cm-editor .cm-gutters { background: var(--bg-surface) !important; }
+.light-theme .cm-editor .tok-heading { color: var(--accent) !important; }
+/* ... 完整覆盖选择区、行号、语法高亮等 */
+```
+
+### 7.6 非 Tailwind 元素的主题适配
+
+以下元素不通过 Tailwind 类名着色，需在 `index.css` 中直接使用 CSS 变量：
+
+- `body` 背景和文字颜色
+- 滚动条（`::-webkit-scrollbar-thumb`）
+- Markdown 预览区域（`.markdown-preview h1/h2/code/blockquote/...`）
+- AI 面板 Markdown 内容（`.ai-markdown-content`）
+- Wiki 链接（`.wiki-link`）
+- 文件夹树动画（`.folder-item`）
+
+这些元素在 `index.css` 中统一使用 `var(--xxx)` 引用，当 `applyTheme()` 更新变量值时自动切换。
+
+### 7.7 关键技术决策
+
+**为何选择 CSS 变量而非 Tailwind `dark:` 前缀？** Tailwind 的 `dark:` 前缀依赖 `prefers-color-scheme` 媒体查询或 class 切换，但无法处理 CodeMirror JS 主题和非 Tailwind 元素。CSS 变量方案统一了所有着色来源——Tailwind 类、CSS 规则、JS 主题都通过同一组变量驱动。
+
+**为何不将 CodeMirror 主题也改为 CSS 变量？** CodeMirror 的 `EditorView.theme()` 在创建时生成静态 CSS 规则。虽然支持 `var()` 语法，但亮色主题的覆盖（如选区透明度、语法高亮颜色）需要更精细的控制，通过 `.light-theme` CSS 覆盖更灵活可靠。
+
+**为何 esbuild CSS 压缩器会导致转义选择器失败？** 之前的方案使用 `.bg-\[#1e1e2e\] { background-color: var(--bg-base) !important; }` 重定向 Tailwind 任意值类。但 esbuild 在压缩 CSS 时会破坏反斜杠转义，导致选择器失效。迁移到 Tailwind 语义化颜色后，完全消除了对转义选择器的依赖。
+
+---
+
+## 八、数据流总览
 
 以下是一篇笔记从创建到同步再到 AI 处理的完整数据流：
 
@@ -591,7 +732,7 @@ CodeMirror 编辑器 ──→ Tauri IPC ──→ NoteService.save()
 
 ---
 
-## 八、项目模块结构（Rust workspace）
+## 九、项目模块结构（Rust workspace）
 
 ```
 mini-obsidian/
@@ -652,11 +793,21 @@ mini-obsidian/
 │   ├── src/
 │   │   ├── App.tsx
 │   │   ├── components/
-│   │   │   ├── Editor/         # Markdown 编辑器组件
+│   │   │   ├── Editor/         # Markdown 编辑器（CodeMirror 6）
 │   │   │   ├── Sidebar/        # 文件浏览器
+│   │   │   ├── TabBar/         # 多标签页栏
+│   │   │   ├── Settings/       # 设置面板（主题/字体/语言）
 │   │   │   ├── Search/         # 搜索面板
 │   │   │   ├── Graph/          # 知识图谱视图
-│   │   │   └── AI/             # AI 面板（摘要、问答）
+│   │   │   ├── AI/             # AI 面板（摘要、问答）
+│   │   │   ├── Sync/           # 云同步面板
+│   │   │   ├── PDF/            # PDF 导出
+│   │   │   └── Backlinks/      # 反向链接面板
+│   │   ├── styles/
+│   │   │   └── index.css       # 全局样式（CSS 变量默认值、markdown 预览、CodeMirror 覆盖）
+│   │   ├── __tests__/
+│   │   │   ├── setup.ts        # 测试环境配置
+│   │   │   └── theme.test.ts   # 主题系统单元/集成测试
 │   │   ├── hooks/              # 自定义 React Hooks
 │   │   └── ipc/                # Tauri IPC 封装层
 │   └── vite.config.ts
@@ -666,7 +817,7 @@ mini-obsidian/
 
 ---
 
-## 九、分阶段实施建议
+## 十、分阶段实施建议
 
 ### Phase 1：核心笔记体验（约 4-6 周）
 
@@ -686,13 +837,17 @@ mini-obsidian/
 
 核心交付物包括：统一 AI 适配器框架、至少两个云端适配器（如 OpenAI + 文心一言）和 Ollama 本地适配器、笔记自动摘要和关键词提取、基于笔记内容的语义问答面板、隐私分级配置 UI，以及 AI 结果的 Frontmatter 回写和过期自动刷新。
 
-### Phase 4：增强与打磨（约 2-3 周）
+### Phase 4：增强与打磨（部分已实现）
 
-核心交付物包括：笔记模板系统、日记/每日回顾功能、标签管理与过滤、快捷键系统优化、导出功能（PDF/HTML）、以及性能优化和 Bug 修复。
+**主题系统（已完成）**：CSS 变量 + Tailwind 语义化颜色双层架构，支持 Catppuccin Mocha/Latte 亮暗色切换，28 个语义化颜色变量，CodeMirror 编辑器主题适配，设置持久化，12 个单元/集成测试。
+
+**PDF 导出（已完成）**：PDFCanvas 组件支持笔记导出为 PDF。
+
+剩余规划：笔记模板系统、标签管理与过滤、快捷键系统优化、以及性能优化和 Bug 修复。
 
 ---
 
-## 十、扩展性预留
+## 十一、扩展性预留
 
 系统在多个关键位置预留了扩展点：
 
@@ -723,4 +878,4 @@ mini-obsidian/
 | pulldown-cmark | 0.11 | Markdown 解析 |
 | diffy | 0.4 | diff3 合并算法 |
 
-前端方面：React 18、TailwindCSS 3、CodeMirror 6、@tauri-apps/api、reactflow（知识图谱）、framer-motion（动画）。
+前端方面：React 18、TailwindCSS 3.4（CSS 变量颜色系统）、CodeMirror 6、@tauri-apps/api、reactflow（知识图谱）、katex（数学公式）、highlight.js（代码高亮）、Vitest 1.x + happy-dom（测试）。

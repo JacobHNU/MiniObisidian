@@ -11,6 +11,7 @@ import { useI18n } from '../../i18n'
 import CodeMirrorEditor from './CodeMirrorEditor'
 import PDFCanvas from '../PDF/PDFCanvas'
 import SelectionToolbar from './SelectionToolbar'
+import TagInput from '../Tags/TagInput'
 
 interface EditorPanelProps {
   content: string
@@ -21,6 +22,7 @@ interface EditorPanelProps {
   isPdf?: boolean
   pdfDataUrl?: string
   onSendToAI?: (text: string) => void
+  onRefreshContent?: () => void
   onToast?: (message: string, type: 'success' | 'error') => void
 }
 
@@ -98,13 +100,14 @@ const mdComponents = {
   },
 }
 
-export default function EditorPanel({ content, onChange, viewMode, currentNoteId, onWikiLinkClick, isPdf, pdfDataUrl, onSendToAI, onToast }: EditorPanelProps) {
+export default function EditorPanel({ content, onChange, viewMode, currentNoteId, onWikiLinkClick, isPdf, pdfDataUrl, onSendToAI, onRefreshContent, onToast }: EditorPanelProps) {
   const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const [splitRatio, setSplitRatio] = useState(50)
   const [isDragging, setIsDragging] = useState(false)
+  const [noteTags, setNoteTags] = useState<string[]>([])
 
   // Handle image paste from CodeMirror
   const handlePasteImage = useCallback(async (file: File) => {
@@ -188,6 +191,24 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
     }
   }, [isDragging])
 
+  // Extract tags from frontmatter when content changes
+  useEffect(() => {
+    if (!content) { setNoteTags([]); return }
+    const match = content.match(/^---\n([\s\S]*?)\n---/)
+    if (match) {
+      const fm = match[1]
+      const tagsMatch = fm.match(/tags:\s*\[([^\]]*)\]/)
+      if (tagsMatch) {
+        const tags = tagsMatch[1].split(',').map(t => t.trim().replace(/['"]/g, '')).filter(Boolean)
+        setNoteTags(tags)
+      } else {
+        setNoteTags([])
+      }
+    } else {
+      setNoteTags([])
+    }
+  }, [content])
+
   if (viewMode === 'edit') {
     // PDF files cannot be edited
     if (isPdf) {
@@ -205,12 +226,25 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
       )
     }
     return (
-      <div className="h-full w-full overflow-hidden">
-        <CodeMirrorEditor
-          content={content}
-          onChange={onChange}
-          onPasteImage={handlePasteImage}
-        />
+      <div className="h-full w-full flex flex-col overflow-hidden">
+        {/* Tags bar */}
+        {currentNoteId && (
+          <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
+            <TagInput
+              noteId={currentNoteId}
+              tags={noteTags}
+              onTagsChange={setNoteTags}
+              onTagChanged={onRefreshContent}
+            />
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden">
+          <CodeMirrorEditor
+            content={content}
+            onChange={onChange}
+            onPasteImage={handlePasteImage}
+          />
+        </div>
       </div>
     )
   }
@@ -222,17 +256,30 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
     }
 
     return (
-      <div ref={previewContainerRef as React.RefObject<HTMLDivElement>} className="h-full w-full overflow-y-auto relative" onClick={handlePreviewClick}>
-        <div className="p-6 markdown-preview">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
-            components={mdComponents}
-          >
-            {previewContent}
-          </ReactMarkdown>
+      <div className="h-full w-full flex flex-col overflow-hidden">
+        {/* Tags bar */}
+        {currentNoteId && (
+          <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
+            <TagInput
+              noteId={currentNoteId}
+              tags={noteTags}
+              onTagsChange={setNoteTags}
+              onTagChanged={onRefreshContent}
+            />
+          </div>
+        )}
+        <div ref={previewContainerRef as React.RefObject<HTMLDivElement>} className="flex-1 overflow-y-auto relative" onClick={handlePreviewClick}>
+          <div className="p-6 markdown-preview">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
+              rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
+              components={mdComponents}
+            >
+              {previewContent}
+            </ReactMarkdown>
+          </div>
+          {onSendToAI && <SelectionToolbar containerRef={previewContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
         </div>
-        {onSendToAI && <SelectionToolbar containerRef={previewContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
       </div>
     )
   }
@@ -243,45 +290,58 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full w-full flex overflow-hidden"
-      onClick={handlePreviewClick}
-      style={{ cursor: isDragging ? 'col-resize' : undefined }}
-    >
-      <div className="overflow-hidden" style={{ width: `${splitRatio}%`, minWidth: 0 }}>
-        <CodeMirrorEditor
-          content={content}
-          onChange={onChange}
-          onPasteImage={handlePasteImage}
-        />
-      </div>
-
+    <div className="h-full w-full flex flex-col overflow-hidden">
+      {/* Tags bar */}
+      {currentNoteId && (
+        <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
+          <TagInput
+            noteId={currentNoteId}
+            tags={noteTags}
+            onTagsChange={setNoteTags}
+            onTagChanged={onRefreshContent}
+          />
+        </div>
+      )}
       <div
-        className={`relative shrink-0 w-[5px] cursor-col-resize group transition-colors ${
-          isDragging ? 'bg-accent' : 'bg-muted hover:bg-subtle'
-        }`}
-        onMouseDown={handleMouseDown}
+        ref={containerRef}
+        className="flex-1 flex overflow-hidden"
+        onClick={handlePreviewClick}
+        style={{ cursor: isDragging ? 'col-resize' : undefined }}
       >
-        <div className="absolute inset-y-0 -left-[4px] -right-[4px]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
-          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
-          <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+        <div className="overflow-hidden" style={{ width: `${splitRatio}%`, minWidth: 0 }}>
+          <CodeMirrorEditor
+            content={content}
+            onChange={onChange}
+            onPasteImage={handlePasteImage}
+          />
         </div>
-      </div>
 
-      <div ref={splitContainerRef as React.RefObject<HTMLDivElement>} className="overflow-y-auto overflow-x-hidden flex-1 relative" style={{ minWidth: 0 }}>
-        <div className="p-6 markdown-preview">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
-            components={mdComponents}
-          >
-            {previewContent}
-          </ReactMarkdown>
+        <div
+          className={`relative shrink-0 w-[5px] cursor-col-resize group transition-colors ${
+            isDragging ? 'bg-accent' : 'bg-muted hover:bg-subtle'
+          }`}
+          onMouseDown={handleMouseDown}
+        >
+          <div className="absolute inset-y-0 -left-[4px] -right-[4px]" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+            <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+            <div className="w-[3px] h-[3px] rounded-full bg-text-secondary" />
+          </div>
         </div>
-        {onSendToAI && <SelectionToolbar containerRef={splitContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
+
+        <div ref={splitContainerRef as React.RefObject<HTMLDivElement>} className="overflow-y-auto overflow-x-hidden flex-1 relative" style={{ minWidth: 0 }}>
+          <div className="p-6 markdown-preview">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkFrontmatter, remarkMath]}
+              rehypePlugins={[rehypeRaw, rehypeHighlight, rehypeKatex]}
+              components={mdComponents}
+            >
+              {previewContent}
+            </ReactMarkdown>
+          </div>
+          {onSendToAI && <SelectionToolbar containerRef={splitContainerRef as React.RefObject<HTMLElement>} onSendToAI={onSendToAI} />}
+        </div>
       </div>
     </div>
   )

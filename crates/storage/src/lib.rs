@@ -255,6 +255,180 @@ impl Database {
         )?;
         Ok(())
     }
+
+    // -- Tag operations --
+
+    pub fn create_tag(&self, tag: &schema::Tag) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO tags (name, color, icon, description, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![tag.name, tag.color, tag.icon, tag.description, tag.created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_tag(&self, name: &str, color: Option<&str>, icon: Option<&str>, description: Option<&str>) -> Result<()> {
+        let conn = self.lock_conn()?;
+        // Build dynamic UPDATE
+        let mut sets = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(c) = color {
+            sets.push(format!("color = ?{}", params.len() + 1));
+            params.push(Box::new(c.to_string()));
+        }
+        if let Some(i) = icon {
+            sets.push(format!("icon = ?{}", params.len() + 1));
+            params.push(Box::new(i.to_string()));
+        }
+        if let Some(d) = description {
+            sets.push(format!("description = ?{}", params.len() + 1));
+            params.push(Box::new(d.to_string()));
+        }
+        if sets.is_empty() {
+            return Ok(());
+        }
+        params.push(Box::new(name.to_string()));
+        let sql = format!("UPDATE tags SET {} WHERE name = ?{}", sets.join(", "), params.len());
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        conn.execute(&sql, param_refs.as_slice())?;
+        Ok(())
+    }
+
+    pub fn delete_tag(&self, name: &str) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("DELETE FROM tags WHERE name = ?1", rusqlite::params![name])?;
+        Ok(())
+    }
+
+    pub fn list_tags(&self) -> Result<Vec<schema::Tag>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT name, color, icon, description, created_at FROM tags ORDER BY name",
+        )?;
+        let tags = stmt
+            .query_map([], |row| {
+                Ok(schema::Tag {
+                    name: row.get(0)?,
+                    color: row.get(1)?,
+                    icon: row.get(2)?,
+                    description: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(tags)
+    }
+
+    pub fn get_tag(&self, name: &str) -> Result<Option<schema::Tag>> {
+        let conn = self.lock_conn()?;
+        let result = conn
+            .prepare("SELECT name, color, icon, description, created_at FROM tags WHERE name = ?1")?
+            .query_row(rusqlite::params![name], |row| {
+                Ok(schema::Tag {
+                    name: row.get(0)?,
+                    color: row.get(1)?,
+                    icon: row.get(2)?,
+                    description: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .optional()?;
+        Ok(result)
+    }
+
+    pub fn get_notes_by_tag(&self, tag_name: &str) -> Result<Vec<schema::NoteMeta>> {
+        let conn = self.lock_conn()?;
+        let pattern = format!("%\"{}%", tag_name);
+        let mut stmt = conn.prepare(
+            "SELECT id, path, title, tags, content_hash, created_at, updated_at
+             FROM notes_meta WHERE tags LIKE ?1 ORDER BY updated_at DESC",
+        )?;
+        let notes = stmt
+            .query_map(rusqlite::params![pattern], |row| {
+                let tags_str: String = row.get(3)?;
+                let tags: Vec<String> = serde_json::from_str(&tags_str).unwrap_or_default();
+                // Filter in Rust to avoid false positives from LIKE
+                if !tags.iter().any(|t| t == tag_name) {
+                    return Ok(None);
+                }
+                Ok(Some(schema::NoteMeta {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    title: row.get(2)?,
+                    tags,
+                    content_hash: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                }))
+            })?
+            .filter_map(|r| r.transpose())
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(notes)
+    }
+
+    // -- Folder meta operations --
+
+    pub fn set_folder_icon(&self, path: &str, icon: Option<&str>) -> Result<()> {
+        let conn = self.lock_conn()?;
+        if let Some(i) = icon {
+            conn.execute(
+                "INSERT INTO folder_meta (path, icon) VALUES (?1, ?2)
+                 ON CONFLICT(path) DO UPDATE SET icon = excluded.icon",
+                rusqlite::params![path, i],
+            )?;
+        } else {
+            conn.execute("DELETE FROM folder_meta WHERE path = ?1", rusqlite::params![path])?;
+        }
+        Ok(())
+    }
+
+    pub fn get_folder_meta(&self, path: &str) -> Result<Option<schema::FolderMeta>> {
+        let conn = self.lock_conn()?;
+        let result = conn
+            .prepare("SELECT path, icon, color FROM folder_meta WHERE path = ?1")?
+            .query_row(rusqlite::params![path], |row| {
+                Ok(schema::FolderMeta {
+                    path: row.get(0)?,
+                    icon: row.get(1)?,
+                    color: row.get(2)?,
+                })
+            })
+            .optional()?;
+        Ok(result)
+    }
+
+    pub fn list_folder_metas(&self) -> Result<Vec<schema::FolderMeta>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare("SELECT path, icon, color FROM folder_meta")?;
+        let metas = stmt
+            .query_map([], |row| {
+                Ok(schema::FolderMeta {
+                    path: row.get(0)?,
+                    icon: row.get(1)?,
+                    color: row.get(2)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(metas)
+    }
+
+    // -- Note icon operations (stored in config table) --
+
+    pub fn set_note_icon(&self, note_id: &str, icon: Option<&str>) -> Result<()> {
+        let key = format!("icon:{}", note_id);
+        if let Some(i) = icon {
+            self.set_config(&key, i)?;
+        } else {
+            let conn = self.lock_conn()?;
+            conn.execute("DELETE FROM config WHERE key = ?1", rusqlite::params![key])?;
+        }
+        Ok(())
+    }
+
+    pub fn get_note_icon(&self, note_id: &str) -> Result<Option<String>> {
+        let key = format!("icon:{}", note_id);
+        self.get_config(&key)
+    }
 }
 
 use rusqlite::OptionalExtension;

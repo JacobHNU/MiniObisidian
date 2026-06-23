@@ -7,6 +7,7 @@ type SettingsTab = 'about' | 'appearance' | 'shortcuts'
 interface SettingsPanelProps {
   isOpen: boolean
   onClose: () => void
+  onOpenGuide?: () => void
 }
 
 // ── Theme / Font persistence helpers ───────────────────────────────
@@ -84,7 +85,7 @@ export function applyFontSizes(uiFontSize: number, editorFontSize: number) {
 }
 
 // ── Component ──────────────────────────────────────────────────────
-export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({ isOpen, onClose, onOpenGuide }: SettingsPanelProps) {
   const { t, language, setLanguage: setI18nLanguage } = useI18n()
   const [activeTab, setActiveTab] = useState<SettingsTab>('about')
   const [settings, setSettings] = useState<AppSettings>(loadSettings())
@@ -159,7 +160,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
         {/* ── Right Content ────────────────────────────── */}
         <div className="flex-1 overflow-y-auto p-6" style={{ fontSize: 'var(--ui-font-size, 14px)' }}>
-          {activeTab === 'about' && <AboutSection settings={settings} updateSetting={updateSetting} />}
+          {activeTab === 'about' && <AboutSection settings={settings} updateSetting={updateSetting} onOpenGuide={onOpenGuide} />}
           {activeTab === 'appearance' && <AppearanceSection settings={settings} updateSetting={updateSetting} />}
           {activeTab === 'shortcuts' && <ShortcutsSection />}
         </div>
@@ -169,7 +170,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 }
 
 // ── About Section ──────────────────────────────────────────────────
-function AboutSection({ settings, updateSetting }: { settings: AppSettings; updateSetting: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void }) {
+function AboutSection({ settings, updateSetting, onOpenGuide }: { settings: AppSettings; updateSetting: <K extends keyof AppSettings>(k: K, v: AppSettings[K]) => void; onOpenGuide?: () => void }) {
   const { t } = useI18n()
   return (
     <div className="space-y-8">
@@ -217,7 +218,7 @@ function AboutSection({ settings, updateSetting }: { settings: AppSettings; upda
       <Section title={t('settings.help')}>
         <button
           onClick={() => {
-            window.open('https://github.com/miniobsidian/help', '_blank')
+            if (onOpenGuide) onOpenGuide()
           }}
           className="flex items-center gap-2 px-4 py-2 rounded bg-muted text-blue hover:bg-hover transition-colors text-sm"
         >

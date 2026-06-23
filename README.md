@@ -67,6 +67,16 @@
 - **对话管理**：支持 Copy 复制回复、Retry 重新生成、Clear 清空对话
 - **配置持久化**：API Key、API URL、模型名称、token 限制保存在 localStorage
 
+### 主题系统（已实现）
+
+- **CSS 变量驱动**：通过 28 个语义化 CSS 变量（`--bg-base`、`--text-primary`、`--accent` 等）统一控制全应用颜色
+- **Tailwind 语义化颜色**：`tailwind.config.js` 将 CSS 变量映射为 Tailwind 类名（`bg-base`、`text-text-primary`、`border-border-muted` 等），组件中不使用硬编码颜色值
+- **亮色/暗色主题**：内置 Catppuccin Mocha（深色）和 Latte（浅色）两套完整配色，一键切换
+- **即时切换**：`applyTheme()` 通过 `document.documentElement.style.setProperty()` 批量更新 CSS 变量，无页面刷新、无样式闪烁
+- **CodeMirror 适配**：编辑器通过 `.light-theme` CSS 覆盖规则适配亮色主题，语法高亮、选择区、行号等全部跟随主题
+- **设置持久化**：主题、语言、字体大小等设置保存在 `localStorage`，重启后自动恢复
+- **测试覆盖**：12 个单元/集成测试验证 settings 持久化、applyTheme、字体大小、完整切换流程
+
 ### Phase 4：增强与打磨（规划中）
 
 - 笔记模板系统
@@ -79,9 +89,9 @@
 | 层次 | 选型 | 决策理由 |
 |------|------|----------|
 | 桌面框架 | Tauri 2.x | 包体积约 10MB（Electron 约 150MB），内存占用低，Rust 后端安全 |
-| 前端 UI | React 18 + TailwindCSS | 生态成熟，组件丰富 |
+| 前端 UI | React 18 + TailwindCSS 3.4 | 生态成熟，组件丰富；CSS 变量颜色系统驱动主题切换 |
 | Markdown 渲染 | ReactMarkdown + remark/rehype | 支持 GFM、Frontmatter，AI 回复渲染复用 |
-| 编辑器 | 原生 textarea（规划升级 CodeMirror 6） | 当前轻量实现，后续升级支持语法高亮、Vim 模式 |
+| 编辑器 | CodeMirror 6 | 高性能可扩展 Markdown 编辑器，支持语法高亮和主题适配 |
 | 本地数据库 | SQLite (rusqlite) | 轻量嵌入式，用于笔记元数据和链接索引 |
 | 双向链接 | pulldown-cmark + 自定义解析 | 兼容 Obsidian `[[wiki-link]]` 格式 |
 | 知识图谱 | 力导向布局 + SVG | 纯前端实现，无额外依赖 |
@@ -108,16 +118,22 @@ mini-obsidian/
 │       ├── src/lib.rs          # SyncEngine、ChangeDetector、ConflictResolver
 │       └── src/local_adapter.rs # 本地文件夹同步适配器
 ├── src-web/                    # React 前端
-│   ├── src/App.tsx             # 主应用（多标签页状态管理、自动保存）
+│   ├── src/App.tsx             # 主应用（多标签页状态管理、自动保存、主题初始化）
 │   ├── src/components/
 │   │   ├── Editor/EditorPanel.tsx    # Markdown 编辑/预览/分屏
+│   │   ├── Editor/CodeMirrorEditor.tsx # CodeMirror 6 编辑器（主题适配）
 │   │   ├── Sidebar/Sidebar.tsx       # 文件浏览器（树形结构、右键菜单）
 │   │   ├── TabBar/TabBar.tsx         # 多标签页栏
+│   │   ├── Settings/SettingsPanel.tsx # 设置面板（主题/字体/语言，applyTheme 核心）
 │   │   ├── AI/AIPanel.tsx            # AI 问答面板（多笔记上下文、Markdown 渲染）
 │   │   ├── Sync/SyncPanel.tsx        # 云同步面板（变更预览、一键同步）
 │   │   ├── Search/SearchPanel.tsx    # 搜索面板
 │   │   ├── Graph/GraphView.tsx       # 知识图谱（力导向 SVG）
+│   │   ├── PDF/PDFCanvas.tsx         # PDF 导出预览
+│   │   ├── Backlinks/BacklinksPanel.tsx # 反向链接面板
 │   │   └── VaultSetup.tsx            # 首次启动 Vault 选择
+│   ├── src/styles/index.css          # 全局样式（CSS 变量默认值、markdown 预览、CodeMirror 覆盖）
+│   ├── src/__tests__/theme.test.ts   # 主题系统单元/集成测试
 │   ├── src/hooks/useNotes.ts         # 笔记状态管理 Hook
 │   └── src/ipc/tauri.ts              # Tauri IPC 封装（含 AI 聊天、云同步）
 ├── Cargo.toml                  # Rust workspace 配置
@@ -157,6 +173,13 @@ npx tauri build
 
 构建完成后，可执行文件位于 `target/release/mini-obsidian.exe`。可直接复制到任意 Windows 机器运行（需 WebView2 Runtime）。
 
+### 运行测试
+
+```bash
+npm test              # 运行一次
+npm run test:watch    # 监听模式
+```
+
 ## 使用说明
 
 1. **首次启动**：选择一个文件夹作为笔记库（Vault）
@@ -171,6 +194,8 @@ npx tauri build
 10. **图片粘贴**：在编辑器中直接粘贴剪贴板图片，自动保存到 attachments/
 11. **云同步**：点击工具栏 "Sync" 按钮，配置同步目录后可扫描变更并一键同步
 12. **切换 Vault**：点击侧边栏底部按钮切换笔记库
+13. **主题切换**：打开设置面板（齿轮图标），在"外观"标签下切换亮色/暗色主题，即时生效
+14. **字体大小**：设置面板中可独立调整 UI 字体大小和编辑器字体大小
 
 ## 数据存储
 

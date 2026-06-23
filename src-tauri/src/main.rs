@@ -73,6 +73,18 @@ fn main() {
             commands::update_search_index_for_note,
             commands::get_backlinks,
             commands::report_error,
+            commands::create_tag,
+            commands::update_tag,
+            commands::delete_tag,
+            commands::list_tags,
+            commands::get_notes_by_tag,
+            commands::add_tag_to_note,
+            commands::remove_tag_from_note,
+            commands::set_folder_icon,
+            commands::get_folder_icon,
+            commands::list_folder_icons,
+            commands::set_note_icon,
+            commands::get_note_icon,
         ])
         .setup(|_app| {
             tracing::info!("MiniObsidian setup complete");

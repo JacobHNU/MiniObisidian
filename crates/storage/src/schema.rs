@@ -38,6 +38,20 @@ CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes_meta(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id);
 CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_state(sync_status);
+
+CREATE TABLE IF NOT EXISTS tags (
+    name        TEXT PRIMARY KEY,
+    color       TEXT NOT NULL DEFAULT '#cba6f7',
+    icon        TEXT,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS folder_meta (
+    path        TEXT PRIMARY KEY,
+    icon        TEXT,
+    color       TEXT
+);
 "#;
 
 /// Migration: rebuild links table without FK on target_id
@@ -85,4 +99,22 @@ pub struct SyncState {
     pub last_synced: i64,
     pub remote_fid: Option<String>,
     pub version: i32,
+}
+
+/// Tag metadata stored in SQLite
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tag {
+    pub name: String,
+    pub color: String,
+    pub icon: Option<String>,
+    pub description: String,
+    pub created_at: String,
+}
+
+/// Folder metadata (icon/color overrides)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderMeta {
+    pub path: String,
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
