@@ -412,6 +412,105 @@ impl Database {
         Ok(metas)
     }
 
+    // -- Sync state operations --
+
+    pub fn get_sync_state(&self, file_path: &str) -> Result<Option<schema::SyncState>> {
+        let conn = self.lock_conn()?;
+        let result = conn
+            .prepare(
+                "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+                 FROM sync_state WHERE file_path = ?1",
+            )?
+            .query_row(rusqlite::params![file_path], |row| {
+                Ok(schema::SyncState {
+                    file_path: row.get(0)?,
+                    local_hash: row.get(1)?,
+                    remote_hash: row.get(2)?,
+                    sync_status: row.get(3)?,
+                    last_synced: row.get(4)?,
+                    remote_fid: row.get(5)?,
+                    version: row.get(6)?,
+                })
+            })
+            .optional()?;
+        Ok(result)
+    }
+
+    pub fn get_all_sync_states(&self) -> Result<Vec<schema::SyncState>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+             FROM sync_state",
+        )?;
+        let states = stmt
+            .query_map([], |row| {
+                Ok(schema::SyncState {
+                    file_path: row.get(0)?,
+                    local_hash: row.get(1)?,
+                    remote_hash: row.get(2)?,
+                    sync_status: row.get(3)?,
+                    last_synced: row.get(4)?,
+                    remote_fid: row.get(5)?,
+                    version: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(states)
+    }
+
+    pub fn upsert_sync_state(&self, state: &schema::SyncState) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute(
+            "INSERT INTO sync_state (file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(file_path) DO UPDATE SET
+               local_hash = excluded.local_hash,
+               remote_hash = excluded.remote_hash,
+               sync_status = excluded.sync_status,
+               last_synced = excluded.last_synced,
+               remote_fid = excluded.remote_fid,
+               version = excluded.version",
+            rusqlite::params![
+                state.file_path,
+                state.local_hash,
+                state.remote_hash,
+                state.sync_status,
+                state.last_synced,
+                state.remote_fid,
+                state.version,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_sync_state(&self, file_path: &str) -> Result<()> {
+        let conn = self.lock_conn()?;
+        conn.execute("DELETE FROM sync_state WHERE file_path = ?1", rusqlite::params![file_path])?;
+        Ok(())
+    }
+
+    pub fn get_pending_sync_states(&self) -> Result<Vec<schema::SyncState>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+             FROM sync_state WHERE sync_status != 'synced'",
+        )?;
+        let states = stmt
+            .query_map([], |row| {
+                Ok(schema::SyncState {
+                    file_path: row.get(0)?,
+                    local_hash: row.get(1)?,
+                    remote_hash: row.get(2)?,
+                    sync_status: row.get(3)?,
+                    last_synced: row.get(4)?,
+                    remote_fid: row.get(5)?,
+                    version: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(states)
+    }
+
     // -- Note icon operations (stored in config table) --
 
     pub fn set_note_icon(&self, note_id: &str, icon: Option<&str>) -> Result<()> {

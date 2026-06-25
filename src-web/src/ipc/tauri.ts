@@ -180,6 +180,18 @@ export async function aiChatStream(
 }
 
 // Sync
+export interface SyncConfig {
+  includePatterns: string[]
+  excludePatterns: string[]
+  maxFileSize: number
+  excludeDirs: string[]
+  autoSyncEnabled: boolean
+  autoSyncIntervalMinutes: number
+  checkNetwork: boolean
+  conflictStrategy: string
+  syncTarget: string
+}
+
 export interface SyncStatus {
   isSyncing: boolean
   lastSync: string | null
@@ -214,14 +226,26 @@ export interface FileMeta {
   lastSynced: string | null
 }
 
+export const getSyncConfig = () =>
+  invoke<SyncConfig>('get_sync_config')
+
+export const setSyncConfig = (config: SyncConfig) =>
+  invoke<void>('set_sync_config', { config })
+
 export const configureSync = (syncTarget: string) =>
   invoke<SyncStatus>('configure_sync', { syncTarget })
 
-export const runSync = (syncTarget: string) =>
-  invoke<SyncResult>('run_sync', { syncTarget })
+export const runSync = () =>
+  invoke<SyncResult>('run_sync')
 
-export const getSyncChanges = (syncTarget: string) =>
-  invoke<FileChange[]>('get_sync_changes', { syncTarget })
+export const getSyncChanges = () =>
+  invoke<FileChange[]>('get_sync_changes')
+
+export const fullPull = () =>
+  invoke<SyncResult>('full_pull')
+
+export const getSyncStatus = () =>
+  invoke<{ syncTarget: string; autoSyncEnabled: boolean; autoSyncInterval: number; pendingChanges: number; lastSync: string | null }>('get_sync_status')
 
 // Search
 export interface SearchResult {

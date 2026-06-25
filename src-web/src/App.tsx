@@ -71,6 +71,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'pending'>('idle')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiPrefillText, setAiPrefillText] = useState<string | undefined>(undefined)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -707,12 +708,18 @@ export default function App() {
             <div className="w-px h-4 bg-hover mx-1" />
             <button
               onClick={() => setSyncPanelOpen(true)}
-              className="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 text-text-secondary hover:bg-muted"
+              className="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 text-text-secondary hover:bg-muted relative"
               title={t('app.cloudSync')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9" />
               </svg>
+              <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${
+                syncStatus === 'syncing' ? 'bg-blue animate-pulse' :
+                syncStatus === 'error' ? 'bg-red' :
+                syncStatus === 'pending' ? 'bg-yellow' :
+                'bg-green'
+              }`} />
               {t('app.sync')}
             </button>
             <button
@@ -822,6 +829,7 @@ export default function App() {
       <SyncPanel
         isOpen={syncPanelOpen}
         onClose={() => setSyncPanelOpen(false)}
+        onSyncStatusChange={setSyncStatus}
       />
 
       {/* Export PDF Dialog */}

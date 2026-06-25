@@ -1083,75 +1083,163 @@ pub async fn ai_chat_stream(
 // Sync Commands
 // ──────────────────────────────────────────────
 
-/// Configure sync target directory
+const SYNC_CONFIG_KEY: &str = "sync_config";
+
+fn get_sync_config_from_db(db: &Database) -> sync_engine::sync_config::SyncConfig {
+    db.get_config(SYNC_CONFIG_KEY)
+        .ok()
+        .flatten()
+        .and_then(|json| sync_engine::sync_config::SyncConfig::from_json(&json).ok())
+        .unwrap_or_default()
+}
+
+fn get_sync_states_map(db: &Database) -> std::collections::HashMap<String, sync_engine::SyncStateInfo> {
+    db.get_all_sync_states()
+        .ok()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| {
+            (
+                s.file_path.clone(),
+                sync_engine::SyncStateInfo {
+                    local_hash: s.local_hash,
+                    remote_hash: s.remote_hash,
+                    sync_status: s.sync_status,
+                    version: s.version,
+                },
+            )
+        })
+        .collect()
+}
+
+fn persist_state_updates(db: &Database, updates: &[sync_engine::SyncStateUpdate]) {
+    for update in updates {
+        if update.delete {
+            let _ = db.delete_sync_state(&update.file_path);
+        } else {
+            let _ = db.upsert_sync_state(&storage::schema::SyncState {
+                file_path: update.file_path.clone(),
+                local_hash: update.local_hash.clone(),
+                remote_hash: update.remote_hash.clone(),
+                sync_status: update.sync_status.clone(),
+                last_synced: update.last_synced,
+                remote_fid: update.remote_fid.clone(),
+                version: update.version,
+            });
+        }
+    }
+}
+
+/// Get sync configuration
+#[tauri::command]
+pub fn get_sync_config(state: State<'_, AppState>) -> Result<sync_engine::sync_config::SyncConfig, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let service = guard.as_ref().ok_or("Vault not initialized")?;
+    Ok(get_sync_config_from_db(service.db()))
+}
+
+/// Set sync configuration
+#[tauri::command]
+pub fn set_sync_config(
+    state: State<'_, AppState>,
+    config: sync_engine::sync_config::SyncConfig,
+) -> Result<(), String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let service = guard.as_ref().ok_or("Vault not initialized")?;
+    let json = config.to_json().map_err(|e| format!("Serialize config failed: {}", e))?;
+    service.db().set_config(SYNC_CONFIG_KEY, &json).map_err(|e| e.to_string())
+}
+
+/// Configure sync target directory (legacy - now updates SyncConfig)
 #[tauri::command]
 pub async fn configure_sync(
     state: State<'_, AppState>,
     sync_target: String,
 ) -> Result<sync_engine::SyncStatus, String> {
-    let vault_path = {
-        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
-        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
-        service.vault_path().to_path_buf()
-    };
+    {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
 
-    let target = PathBuf::from(&sync_target);
-    if !target.exists() {
-        std::fs::create_dir_all(&target).map_err(|e| format!("Failed to create sync dir: {}", e))?;
+        let target = PathBuf::from(&sync_target);
+        if !target.exists() {
+            std::fs::create_dir_all(&target).map_err(|e| format!("Failed to create sync dir: {}", e))?;
+        }
+
+        // Update config in DB
+        let mut config = get_sync_config_from_db(service.db());
+        config.sync_target = sync_target.clone();
+        let json = config.to_json().map_err(|e| e.to_string())?;
+        service.db().set_config(SYNC_CONFIG_KEY, &json).map_err(|e| e.to_string())?;
     }
 
-    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
-    let engine = sync_engine::SyncEngine::new(
-        vault_path,
-        Box::new(adapter),
-        sync_engine::ConflictStrategy::KeepNewer,
-    );
-
-    let status = engine.status();
-    Ok(status)
+    Ok(sync_engine::SyncStatus {
+        is_syncing: false,
+        last_sync: None,
+        last_result: None,
+        pending_changes: 0,
+        sync_dir: Some(sync_target),
+    })
 }
 
 /// Run sync operation
 #[tauri::command]
 pub async fn run_sync(
     state: State<'_, AppState>,
-    sync_target: String,
 ) -> Result<sync_engine::SyncResult, String> {
-    let vault_path = {
-        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
-        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
-        service.vault_path().to_path_buf()
+    // 1. Read config and sync states while holding lock
+    let (vault_path, config, sync_states) = {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
+        let config = get_sync_config_from_db(service.db());
+        let sync_states = get_sync_states_map(service.db());
+        (service.vault_path().to_path_buf(), config, sync_states)
     };
 
-    let target = PathBuf::from(&sync_target);
-    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
-    let mut engine = sync_engine::SyncEngine::new(
-        vault_path,
-        Box::new(adapter),
-        sync_engine::ConflictStrategy::KeepNewer,
-    );
+    if config.sync_target.is_empty() {
+        return Err("Sync target not configured".to_string());
+    }
 
-    engine.sync().await.map_err(|e| format!("Sync failed: {}", e))
+    // 2. Run async sync (no lock held)
+    let target = PathBuf::from(&config.sync_target);
+    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
+    let strategy = sync_engine::ConflictStrategy::from_str(&config.conflict_strategy);
+    let engine = sync_engine::SyncEngine::new(vault_path, Box::new(adapter), strategy, config);
+
+    let result = engine.sync(&sync_states).await.map_err(|e| format!("Sync failed: {}", e))?;
+
+    // 3. Persist state updates
+    {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
+        persist_state_updates(service.db(), &result.state_updates);
+    }
+
+    Ok(result)
 }
 
-/// Get sync status (dry run - just detect changes)
+/// Get sync changes (dry run - just detect changes)
 #[tauri::command]
 pub async fn get_sync_changes(
     state: State<'_, AppState>,
-    sync_target: String,
 ) -> Result<Vec<sync_engine::FileChange>, String> {
-    let vault_path = {
-        let service_guard = state.note_service.lock().map_err(|e| e.to_string())?;
-        let service = service_guard.as_ref().ok_or("Vault not initialized")?;
-        service.vault_path().to_path_buf()
+    let (vault_path, config, sync_states) = {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
+        let config = get_sync_config_from_db(service.db());
+        let sync_states = get_sync_states_map(service.db());
+        (service.vault_path().to_path_buf(), config, sync_states)
     };
 
-    let target = PathBuf::from(&sync_target);
+    if config.sync_target.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let target = PathBuf::from(&config.sync_target);
     if !target.exists() {
         return Ok(Vec::new());
     }
 
-    let local_files = sync_engine::ChangeDetector::scan_local(&vault_path)
+    let local_files = sync_engine::ChangeDetector::scan_local(&vault_path, &config)
         .map_err(|e| format!("Scan local failed: {}", e))?;
 
     let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
@@ -1162,7 +1250,63 @@ pub async fn get_sync_changes(
         .map(|m| (m.relative_path.clone(), m))
         .collect();
 
-    Ok(sync_engine::ChangeDetector::detect_changes(&local_files, &remote_files))
+    Ok(sync_engine::ChangeDetector::detect_changes_with_state(&local_files, &remote_files, &sync_states))
+}
+
+/// Full pull: download all remote files to local
+#[tauri::command]
+pub async fn full_pull(
+    state: State<'_, AppState>,
+) -> Result<sync_engine::SyncResult, String> {
+    // 1. Read config and sync states
+    let (vault_path, config, sync_states) = {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
+        let config = get_sync_config_from_db(service.db());
+        let sync_states = get_sync_states_map(service.db());
+        (service.vault_path().to_path_buf(), config, sync_states)
+    };
+
+    if config.sync_target.is_empty() {
+        return Err("Sync target not configured".to_string());
+    }
+
+    // 2. Run full pull
+    let target = PathBuf::from(&config.sync_target);
+    let adapter = sync_engine::local_adapter::LocalSyncAdapter::new(target);
+    let strategy = sync_engine::ConflictStrategy::from_str(&config.conflict_strategy);
+    let engine = sync_engine::SyncEngine::new(vault_path, Box::new(adapter), strategy, config);
+
+    let result = engine.full_pull(&sync_states).await.map_err(|e| format!("Full pull failed: {}", e))?;
+
+    // 3. Persist state updates
+    {
+        let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let service = guard.as_ref().ok_or("Vault not initialized")?;
+        persist_state_updates(service.db(), &result.state_updates);
+    }
+
+    Ok(result)
+}
+
+/// Get sync status from database
+#[tauri::command]
+pub fn get_sync_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let service = guard.as_ref().ok_or("Vault not initialized")?;
+    let db = service.db();
+
+    let config = get_sync_config_from_db(db);
+    let pending = db.get_pending_sync_states().map_err(|e| e.to_string())?;
+    let last_sync = db.get_config("last_sync_time").ok().flatten();
+
+    Ok(serde_json::json!({
+        "syncTarget": config.sync_target,
+        "autoSyncEnabled": config.auto_sync_enabled,
+        "autoSyncInterval": config.auto_sync_interval_minutes,
+        "pendingChanges": pending.len(),
+        "lastSync": last_sync,
+    }))
 }
 
 // ──────────────────────────────────────────────
