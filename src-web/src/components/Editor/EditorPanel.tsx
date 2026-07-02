@@ -12,6 +12,7 @@ import CodeMirrorEditor from './CodeMirrorEditor'
 import PDFCanvas from '../PDF/PDFCanvas'
 import SelectionToolbar from './SelectionToolbar'
 import TagInput from '../Tags/TagInput'
+import ExportButton from '../Export/ExportButton'
 
 interface EditorPanelProps {
   content: string
@@ -227,7 +228,7 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
     }
     return (
       <div className="h-full w-full flex flex-col overflow-hidden">
-        {/* Tags bar */}
+        {/* Tags bar + Export */}
         {currentNoteId && (
           <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
             <TagInput
@@ -236,6 +237,12 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
               onTagsChange={setNoteTags}
               onTagChanged={onRefreshContent}
             />
+            <div className="ml-auto">
+              <ExportButton
+                content={content}
+                title={currentNoteId}
+              />
+            </div>
           </div>
         )}
         <div className="flex-1 overflow-hidden">
@@ -257,7 +264,7 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
 
     return (
       <div className="h-full w-full flex flex-col overflow-hidden">
-        {/* Tags bar */}
+        {/* Tags bar + Export */}
         {currentNoteId && (
           <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
             <TagInput
@@ -266,6 +273,13 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
               onTagsChange={setNoteTags}
               onTagChanged={onRefreshContent}
             />
+            <div className="ml-auto">
+              <ExportButton
+                content={content}
+                title={currentNoteId}
+                previewRef={previewContainerRef as React.RefObject<HTMLElement>}
+              />
+            </div>
           </div>
         )}
         <div ref={previewContainerRef as React.RefObject<HTMLDivElement>} className="flex-1 overflow-y-auto relative" onClick={handlePreviewClick}>
@@ -291,7 +305,7 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
-      {/* Tags bar */}
+      {/* Tags bar + Export */}
       {currentNoteId && (
         <div className="flex items-center gap-1 px-3 py-1 border-b border-border-muted bg-surface/50">
           <TagInput
@@ -300,6 +314,13 @@ export default function EditorPanel({ content, onChange, viewMode, currentNoteId
             onTagsChange={setNoteTags}
             onTagChanged={onRefreshContent}
           />
+          <div className="ml-auto">
+            <ExportButton
+              content={content}
+              title={currentNoteId}
+              previewRef={splitContainerRef as React.RefObject<HTMLElement>}
+            />
+          </div>
         </div>
       )}
       <div

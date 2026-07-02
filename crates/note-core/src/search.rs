@@ -76,11 +76,16 @@ impl SearchEngine {
         // Remove existing document if any
         writer.delete_term(tantivy::Term::from_field_text(self.id_field, &note.id));
 
-        // Add new document
+        // Add new document (prepend tags to content so they are searchable)
+        let indexed_content = if note.tags.is_empty() {
+            content.to_string()
+        } else {
+            format!("{}\n{}", note.tags.join(" "), content)
+        };
         writer.add_document(doc!(
             self.id_field => note.id.clone(),
             self.title_field => note.title.clone(),
-            self.content_field => content.to_string(),
+            self.content_field => indexed_content,
             self.path_field => note.path.clone(),
         ))?;
 
@@ -97,10 +102,16 @@ impl SearchEngine {
 
         // Add all notes
         for (note, content) in notes {
+            // Prepend tags to content so they are searchable
+            let indexed_content = if note.tags.is_empty() {
+                content.clone()
+            } else {
+                format!("{}\n{}", note.tags.join(" "), content)
+            };
             writer.add_document(doc!(
                 self.id_field => note.id.clone(),
                 self.title_field => note.title.clone(),
-                self.content_field => content.clone(),
+                self.content_field => indexed_content,
                 self.path_field => note.path.clone(),
             ))?;
         }

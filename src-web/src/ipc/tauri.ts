@@ -357,3 +357,7 @@ export async function setNoteIcon(noteId: string, icon: string | null): Promise<
 export async function getNoteIcon(noteId: string): Promise<string | null> {
   return invoke('get_note_icon', { noteId })
 }
+
+export async function writeExportFile(path: string, data: number[]): Promise<void> {
+  return invoke('write_export_file', { path, data })
+}

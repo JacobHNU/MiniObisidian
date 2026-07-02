@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useI18n, type TranslationKey } from './i18n'
 import Sidebar from './components/Sidebar/Sidebar'
 import EditorPanel from './components/Editor/EditorPanel'
@@ -14,6 +14,8 @@ import SettingsPanel, { loadSettings, applyTheme, applyFontSizes } from './compo
 import GuideView, { GUIDE_TAB_ID } from './components/Guide/GuideDialog'
 import * as api from './ipc/tauri'
 import { useNotes } from './hooks/useNotes'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { DEFAULT_SHORTCUTS } from './shortcuts/defaults'
 
 /**
  * Extract text from a base64-encoded PDF for AI context.
@@ -126,6 +128,10 @@ export default function App() {
   // Keep refs in sync
   useEffect(() => { tabContentsRef.current = tabContents }, [tabContents])
   useEffect(() => { activeTabIdRef.current = activeTabId }, [activeTabId])
+
+  // Need a ref for tabs to avoid stale closures in shortcut handlers
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
 
   // Check for existing vault on mount
   useEffect(() => {
@@ -579,6 +585,66 @@ export default function App() {
     }
   }, [refreshNotes, refreshFolders, t])
 
+  // ── Keyboard Shortcuts ────────────────────────────────────────────
+  const shortcutHandlers = useMemo(() => ({
+    'file.newNote': () => { handleCreateNote() },
+    'file.save': () => {
+      const tabId = activeTabIdRef.current
+      if (tabId) saveTab(tabId)
+    },
+    'file.closeTab': () => {
+      const tabId = activeTabIdRef.current
+      if (tabId) handleTabClose(tabId)
+    },
+    'file.dailyNote': () => { handleCreateDailyNote() },
+    'file.exportPdf': () => {
+      const tabId = activeTabIdRef.current
+      if (tabId && tabContentsRef.current[tabId]) {
+        const state = tabContentsRef.current[tabId]
+        setExportPdfDialog({ isOpen: true, noteTitle: tabsRef.current.find(t => t.id === tabId)?.title || '', noteContent: state.content })
+      }
+    },
+    'view.edit': () => setViewMode('edit'),
+    'view.split': () => setViewMode('split'),
+    'view.preview': () => setViewMode('preview'),
+    'view.graph': () => setViewMode('graph'),
+    'view.search': () => setViewMode('search'),
+    'panel.sidebar': () => setSidebarOpen(prev => !prev),
+    'panel.ai': () => setAiPanelOpen(prev => !prev),
+    'panel.sync': () => setSyncPanelOpen(prev => !prev),
+    'panel.settings': () => setSettingsOpen(prev => !prev),
+    'panel.backlinks': () => {},
+    'tab.next': () => {
+      const currentTabs = tabsRef.current
+      const activeId = activeTabIdRef.current
+      if (currentTabs.length < 2 || !activeId) return
+      const idx = currentTabs.findIndex(t => t.id === activeId)
+      const next = currentTabs[(idx + 1) % currentTabs.length]
+      if (next) handleTabClick(next.id)
+    },
+    'tab.prev': () => {
+      const currentTabs = tabsRef.current
+      const activeId = activeTabIdRef.current
+      if (currentTabs.length < 2 || !activeId) return
+      const idx = currentTabs.findIndex(t => t.id === activeId)
+      const prev = currentTabs[(idx - 1 + currentTabs.length) % currentTabs.length]
+      if (prev) handleTabClick(prev.id)
+    },
+    'editor.search': () => {},
+    'editor.findReplace': () => {},
+    'editor.bold': () => {},
+    'editor.italic': () => {},
+    'editor.code': () => {},
+    'editor.link': () => {},
+    'editor.heading': () => {},
+    'editor.list': () => {},
+  }), [handleCreateNote, saveTab, handleTabClose, handleTabClick, handleCreateDailyNote])
+
+  const { bindings: shortcutBindings, updateBinding, resetBinding, resetAll } = useKeyboardShortcuts(
+    DEFAULT_SHORTCUTS,
+    shortcutHandlers
+  )
+
   const handleWikiLinkClick = useCallback(async (noteTitle: string) => {
     const existingNote = notes.find((n) => n.title === noteTitle)
     if (existingNote) {
@@ -853,6 +919,10 @@ export default function App() {
           setSettingsOpen(false)
           handleOpenGuide()
         }}
+        shortcutBindings={shortcutBindings}
+        onUpdateShortcut={updateBinding}
+        onResetShortcut={resetBinding}
+        onResetAllShortcuts={resetAll}
       />
 
       {/* Toast Notification */}

@@ -77,6 +77,7 @@ fn main() {
             commands::update_search_index_for_note,
             commands::get_backlinks,
             commands::report_error,
+            commands::write_export_file,
             commands::create_tag,
             commands::update_tag,
             commands::delete_tag,

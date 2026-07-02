@@ -361,6 +361,15 @@ pub fn show_in_folder(
 }
 
 // ──────────────────────────────────────────────
+// Export Commands
+// ──────────────────────────────────────────────
+
+#[tauri::command]
+pub fn write_export_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    std::fs::write(&path, &data).map_err(|e| format!("Failed to write file '{}': {}", path, e))
+}
+
+// ──────────────────────────────────────────────
 // Tag Commands
 // ──────────────────────────────────────────────
 

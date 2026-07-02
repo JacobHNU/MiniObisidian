@@ -10,6 +10,12 @@
     "fs:allow-write",
     "fs:allow-mkdir",
     "fs:allow-rename",
-    "fs:allow-exists"
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "**" }
+      ]
+    }
   ]
 }

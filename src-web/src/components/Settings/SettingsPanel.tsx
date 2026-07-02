@@ -1,5 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useI18n, type Language } from '../../i18n'
+import { DEFAULT_SHORTCUTS, SHORTCUT_CATEGORIES } from '../../shortcuts/defaults'
+import { formatCombo, detectConflict, eventToCombo, loadOverrides } from '../../hooks/useKeyboardShortcuts'
+import type { ShortcutBinding, ShortcutScope } from '../../hooks/useKeyboardShortcuts'
 
 // ── Types ──────────────────────────────────────────────────────────
 type SettingsTab = 'about' | 'appearance' | 'shortcuts'
@@ -8,6 +11,10 @@ interface SettingsPanelProps {
   isOpen: boolean
   onClose: () => void
   onOpenGuide?: () => void
+  shortcutBindings?: Record<string, ShortcutBinding>
+  onUpdateShortcut?: (id: string, newKeys: string) => void
+  onResetShortcut?: (id: string) => void
+  onResetAllShortcuts?: () => void
 }
 
 // ── Theme / Font persistence helpers ───────────────────────────────
@@ -85,7 +92,7 @@ export function applyFontSizes(uiFontSize: number, editorFontSize: number) {
 }
 
 // ── Component ──────────────────────────────────────────────────────
-export default function SettingsPanel({ isOpen, onClose, onOpenGuide }: SettingsPanelProps) {
+export default function SettingsPanel({ isOpen, onClose, onOpenGuide, shortcutBindings, onUpdateShortcut, onResetShortcut, onResetAllShortcuts }: SettingsPanelProps) {
   const { t, language, setLanguage: setI18nLanguage } = useI18n()
   const [activeTab, setActiveTab] = useState<SettingsTab>('about')
   const [settings, setSettings] = useState<AppSettings>(loadSettings())
@@ -162,7 +169,14 @@ export default function SettingsPanel({ isOpen, onClose, onOpenGuide }: Settings
         <div className="flex-1 overflow-y-auto p-6" style={{ fontSize: 'var(--ui-font-size, 14px)' }}>
           {activeTab === 'about' && <AboutSection settings={settings} updateSetting={updateSetting} onOpenGuide={onOpenGuide} />}
           {activeTab === 'appearance' && <AppearanceSection settings={settings} updateSetting={updateSetting} />}
-          {activeTab === 'shortcuts' && <ShortcutsSection />}
+          {activeTab === 'shortcuts' && (
+            <ShortcutsSection
+              bindings={shortcutBindings}
+              onUpdate={onUpdateShortcut}
+              onReset={onResetShortcut}
+              onResetAll={onResetAllShortcuts}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -330,12 +344,172 @@ function AppearanceSection({ settings, updateSetting }: { settings: AppSettings;
 }
 
 // ── Shortcuts Section ──────────────────────────────────────────────
-function ShortcutsSection() {
+interface ShortcutsSectionProps {
+  bindings?: Record<string, ShortcutBinding>
+  onUpdate?: (id: string, newKeys: string) => void
+  onReset?: (id: string) => void
+  onResetAll?: () => void
+}
+
+function ShortcutsSection({ bindings, onUpdate, onReset, onResetAll }: ShortcutsSectionProps) {
   const { t } = useI18n()
+  const [recordingId, setRecordingId] = useState<string | null>(null)
+  const [conflictMsg, setConflictMsg] = useState<string | null>(null)
+  const overrides = useRef(loadOverrides())
+
+  // Recording handler: listens for next key combo
+  useEffect(() => {
+    if (!recordingId || !bindings) return
+
+    const handleRecord = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Esc cancels recording
+      if (e.key === 'Escape') {
+        setRecordingId(null)
+        setConflictMsg(null)
+        return
+      }
+
+      // Ignore lone modifier keys
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return
+
+      const combo = eventToCombo(e)
+      if (!combo) return
+
+      // Check for conflict
+      const currentBinding = bindings[recordingId]
+      if (currentBinding) {
+        const conflict = detectConflict(combo, currentBinding.scope, bindings, recordingId)
+        if (conflict) {
+          setConflictMsg(t('shortcuts.conflict', { name: t(conflict.label as any) }))
+          return
+        }
+      }
+
+      // Save
+      if (onUpdate) onUpdate(recordingId, combo)
+      overrides.current = { ...overrides.current, [recordingId]: combo }
+      setRecordingId(null)
+      setConflictMsg(null)
+    }
+
+    window.addEventListener('keydown', handleRecord, true)
+    return () => window.removeEventListener('keydown', handleRecord, true)
+  }, [recordingId, bindings, onUpdate, t])
+
+  if (!bindings) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-text-muted">
+        <ShortcutsIcon />
+        <p className="mt-3 text-sm">{t('settings.shortcutsComingSoon')}</p>
+      </div>
+    )
+  }
+
+  const currentOverrides = loadOverrides()
+
   return (
-    <div className="flex flex-col items-center justify-center h-full text-text-muted">
-      <ShortcutsIcon />
-      <p className="mt-3 text-sm">{t('settings.shortcutsComingSoon')}</p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-text-primary">{t('settings.shortcuts')}</h3>
+        <button
+          onClick={() => {
+            if (onResetAll) {
+              onResetAll()
+              overrides.current = {}
+              // Force re-render
+              setRecordingId(null)
+            }
+          }}
+          className="px-3 py-1 rounded text-xs bg-muted text-text-secondary hover:bg-hover transition-colors"
+        >
+          {t('shortcuts.resetAll')}
+        </button>
+      </div>
+
+      {/* Tip */}
+      <p className="text-xs text-text-muted">{t('shortcuts.tip')}</p>
+
+      {/* Recording indicator */}
+      {recordingId && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded bg-accent/10 border border-accent/30 text-accent text-xs">
+          <span className="inline-block w-2 h-2 rounded-full bg-accent animate-pulse" />
+          {t('shortcuts.pressKeys')}
+          {conflictMsg && <span className="text-red ml-2">{conflictMsg}</span>}
+        </div>
+      )}
+
+      {/* Shortcut categories */}
+      <div className="space-y-5 max-h-[320px] overflow-y-auto pr-1">
+        {SHORTCUT_CATEGORIES.map(({ key: catKey, label: catLabel }) => {
+          const catBindings = DEFAULT_SHORTCUTS.filter(b => b.category === catKey)
+          if (catBindings.length === 0) return null
+
+          return (
+            <div key={catKey}>
+              <h4 className="text-xs font-medium text-text-secondary uppercase tracking-wider mb-2">
+                {t(catLabel as any)}
+              </h4>
+              <div className="space-y-0.5">
+                {catBindings.map(binding => {
+                  const effective = bindings[binding.id]
+                  const isCustomized = currentOverrides[binding.id] != null
+                  const isRecording = recordingId === binding.id
+
+                  return (
+                    <div
+                      key={binding.id}
+                      className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/50 group"
+                    >
+                      <span className="text-sm text-text-primary">
+                        {t(binding.label as any)}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isCustomized && (
+                          <span className="text-[10px] text-accent mr-1">{t('shortcuts.customized')}</span>
+                        )}
+                        <button
+                          onClick={() => {
+                            setRecordingId(isRecording ? null : binding.id)
+                            setConflictMsg(null)
+                          }}
+                          className={`px-2 py-0.5 rounded text-xs font-mono border transition-colors ${
+                            isRecording
+                              ? 'border-accent bg-accent/10 text-accent animate-pulse'
+                              : 'border-border-muted bg-muted text-text-secondary hover:border-accent hover:text-accent'
+                          }`}
+                        >
+                          {isRecording ? t('shortcuts.pressKeys') : formatCombo(effective?.keys || binding.keys)}
+                        </button>
+                        {isCustomized && (
+                          <button
+                            onClick={() => {
+                              if (onReset) onReset(binding.id)
+                              delete overrides.current[binding.id]
+                              // Force re-render
+                              setRecordingId(null)
+                            }}
+                            className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded text-[10px] text-text-muted hover:text-text-primary hover:bg-hover transition-all"
+                            title={t('shortcuts.reset')}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
