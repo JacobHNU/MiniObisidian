@@ -84,6 +84,7 @@ export default function App() {
   const tabContentsRef = useRef<Record<string, TabState>>({})
   const activeTabIdRef = useRef<string | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null)
+  const [missingNoteRecovery, setMissingNoteRecovery] = useState<{ noteId: string; notePath: string; noteTitle: string } | null>(null)
 
   // Auto-dismiss toast after 5 seconds
   useEffect(() => {
@@ -126,8 +127,12 @@ export default function App() {
   } = useNotes(vaultReady)
 
   // Keep refs in sync
+  // CRITICAL: activeTabIdRef MUST be updated in the render body (not useEffect)
+  // because useEffect runs AFTER child effects. If CodeMirror's update listener
+  // fires during child effect phase, it reads stale activeTabIdRef from the
+  // PREVIOUS render, causing content to be saved to the WRONG note.
+  activeTabIdRef.current = activeTabId
   useEffect(() => { tabContentsRef.current = tabContents }, [tabContents])
-  useEffect(() => { activeTabIdRef.current = activeTabId }, [activeTabId])
 
   // Need a ref for tabs to avoid stale closures in shortcut handlers
   const tabsRef = useRef(tabs)
@@ -237,6 +242,9 @@ export default function App() {
         content = await api.readNoteByPath(notePath)
       } catch (e) {
         console.error('Failed to read note:', e)
+        // File missing - trigger recovery dialog
+        setMissingNoteRecovery({ noteId, notePath, noteTitle: noteTitle || t('app.untitled') })
+        return
       }
 
       // Add new tab
@@ -252,7 +260,7 @@ export default function App() {
         [noteId]: { content, filePath: notePath! },
       }))
     },
-    [activeTabId, tabs, notes, saveTab]
+    [activeTabId, tabs, notes, saveTab, t]
   )
 
   // Close a tab
@@ -332,7 +340,11 @@ export default function App() {
         // Verify the tab is still active before saving
         if (activeTabIdRef.current !== tabIdAtSave) return
         try {
-          await api.updateNote(tabIdAtSave, content)
+          // ALWAYS read latest content from ref, never from closure
+          // The closure's `content` may be stale if user typed more during the 1s delay
+          const latestContent = tabContentsRef.current[tabIdAtSave]?.content
+          if (latestContent == null) return // Tab was closed
+          await api.updateNote(tabIdAtSave, latestContent)
           // Update search index for this note (fire-and-forget)
           api.updateSearchIndexForNote(tabIdAtSave).catch(() => {})
         } catch (e) {
@@ -527,8 +539,13 @@ export default function App() {
       }))
     } catch (e) {
       console.error('Failed to refresh content:', e)
+      // File may have been renamed/moved - trigger recovery
+      const note = notes.find(n => n.id === tabId)
+      if (note) {
+        setMissingNoteRecovery({ noteId: tabId, notePath: state.filePath, noteTitle: note.title })
+      }
     }
-  }, [])
+  }, [notes])
 
   // Send selected PDF text to AI Q&A panel
   const handleSendToAI = useCallback((text: string) => {
@@ -584,6 +601,83 @@ export default function App() {
       setToast({ message: t('app.moveNoteFailed') + String(e), type: 'error' })
     }
   }, [refreshNotes, refreshFolders, t])
+
+  // ── Rescan Vault ────────────────────────────────────────────────────
+  const handleRescanVault = useCallback(async () => {
+    try {
+      const count = await api.rescanVault()
+      await refreshNotes()
+      await refreshFolders()
+      setToast({ message: t('app.rescanComplete', { count }), type: 'success' })
+    } catch (e) {
+      console.error('Failed to rescan vault:', e)
+      setToast({ message: t('app.rescanFailed') + String(e), type: 'error' })
+    }
+  }, [refreshNotes, refreshFolders, t])
+
+  // ── Note File Recovery ──────────────────────────────────────────────
+  const handleRelocateNote = useCallback(async () => {
+    if (!missingNoteRecovery) return
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+        title: t('app.relocateNote'),
+      })
+      if (!selected) return // user cancelled
+
+      const selectedPath = typeof selected === 'string' ? selected : selected
+
+      // Get vault path to compute relative path
+      const vaultPath = await api.getVaultPath()
+      if (!vaultPath) return
+
+      // Normalize separators for cross-platform comparison
+      const normalizedVault = vaultPath.replace(/\\/g, '/').replace(/\/$/, '')
+      const normalizedSelected = selectedPath.replace(/\\/g, '/')
+
+      let relativePath: string
+      if (normalizedSelected.startsWith(normalizedVault + '/')) {
+        relativePath = normalizedSelected.slice(normalizedVault.length + 1)
+      } else {
+        // File is outside vault - show error
+        setToast({ message: t('app.noteRelocateFailed') + 'File must be inside the vault folder', type: 'error' })
+        return
+      }
+
+      // Call backend to relocate
+      const updated = await api.relocateNote(missingNoteRecovery.noteId, relativePath)
+
+      // Success - refresh notes, close dialog, open the relocated note
+      await refreshNotes()
+      setMissingNoteRecovery(null)
+      setToast({ message: t('app.noteRelocated'), type: 'success' })
+
+      // Open the note with updated path
+      const newContent = await api.readNoteByPath(updated.path)
+      const existingTab = tabs.find(t => t.id === updated.id)
+      if (existingTab) {
+        setTabs(prev => prev.map(t => t.id === updated.id ? { ...t, title: updated.title, filePath: updated.path } : t))
+        setTabContents(prev => ({
+          ...prev,
+          [updated.id]: { content: newContent, filePath: updated.path },
+        }))
+        setActiveTabId(updated.id)
+      } else {
+        const newTab: Tab = { id: updated.id, title: updated.title, filePath: updated.path }
+        setTabs(prev => [...prev, newTab])
+        setActiveTabId(updated.id)
+        setTabContents(prev => ({
+          ...prev,
+          [updated.id]: { content: newContent, filePath: updated.path },
+        }))
+      }
+    } catch (e) {
+      console.error('Failed to relocate note:', e)
+      setToast({ message: t('app.noteRelocateFailed') + String(e), type: 'error' })
+    }
+  }, [missingNoteRecovery, refreshNotes, tabs, t])
 
   // ── Keyboard Shortcuts ────────────────────────────────────────────
   const shortcutHandlers = useMemo(() => ({
@@ -726,6 +820,7 @@ export default function App() {
           onMoveNote={handleMoveNote}
           onClose={() => setSidebarOpen(false)}
           onSwitchVault={handleSwitchVault}
+          onRescan={handleRescanVault}
         />
       )}
 
@@ -924,6 +1019,53 @@ export default function App() {
         onResetShortcut={resetBinding}
         onResetAllShortcuts={resetAll}
       />
+
+      {/* Missing Note Recovery Dialog */}
+      {missingNoteRecovery && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50" onClick={() => setMissingNoteRecovery(null)}>
+          <div className="bg-surface rounded-xl shadow-2xl border border-border-muted w-[460px] max-w-[90vw] p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red/10 flex items-center justify-center shrink-0 mt-0.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-red" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-text-primary mb-1">{t('app.noteFileMissing')}</h3>
+                <p className="text-sm text-text-secondary leading-relaxed">
+                  {t('app.noteFileMissingDesc', { path: missingNoteRecovery.notePath })}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-3 mb-5">
+              <p className="text-xs text-text-muted leading-relaxed">
+                {t('app.relocateNoteHint')}
+              </p>
+              <p className="text-xs text-text-muted leading-relaxed mt-1.5">
+                {t('app.relocateNoteAutoHint')}
+              </p>
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setMissingNoteRecovery(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-border-muted text-text-secondary hover:bg-muted transition-colors"
+              >
+                {t('app.relocateNoteCancel')}
+              </button>
+              <button
+                onClick={handleRelocateNote}
+                className="px-4 py-2 text-sm rounded-lg bg-accent text-text-inverse hover:opacity-90 transition-opacity"
+              >
+                {t('app.relocateNoteButton')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toast && (

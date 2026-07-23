@@ -174,6 +174,32 @@ impl Database {
         Ok(result)
     }
 
+    /// Find a note by content hash (for rename detection)
+    pub fn get_note_by_content_hash(&self, content_hash: &str) -> Result<Option<schema::NoteMeta>> {
+        let conn = self.lock_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, path, title, tags, content_hash, created_at, updated_at
+             FROM notes_meta WHERE content_hash = ?1",
+        )?;
+        let result = stmt
+            .query_row(rusqlite::params![content_hash], |row| {
+                let tags_str: String = row.get(3)?;
+                let tags: Vec<String> =
+                    serde_json::from_str(&tags_str).unwrap_or_default();
+                Ok(schema::NoteMeta {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    title: row.get(2)?,
+                    tags,
+                    content_hash: row.get(4)?,
+                    created_at: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })
+            .optional()?;
+        Ok(result)
+    }
+
     // -- Link operations --
 
     pub fn upsert_link(&self, source_id: &str, target_id: &str, context: Option<&str>) -> Result<()> {

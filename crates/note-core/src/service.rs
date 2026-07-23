@@ -209,7 +209,7 @@ impl NoteService {
             Some(m) => {
                 let abs_path = self.vault_path.join(&m.path);
                 if abs_path.exists() {
-                    let content = fs::read_to_string(&abs_path)?;
+                    let content = parser::read_file_to_string(&abs_path)?;
                     let parsed = parser::parse_note(&content)?;
                     Ok(Some(parsed))
                 } else {
@@ -223,7 +223,7 @@ impl NoteService {
     /// Read raw content of a note by path
     pub fn read_note_by_path(&self, relative_path: &str) -> Result<String> {
         let abs_path = self.vault_path.join(relative_path);
-        let content = fs::read_to_string(&abs_path)
+        let content = parser::read_file_to_string(&abs_path)
             .with_context(|| format!("Failed to read note: {}", relative_path))?;
         Ok(content)
     }
@@ -420,7 +420,7 @@ impl NoteService {
             .context("Note not found")?;
 
         let abs_path = self.vault_path.join(&meta.path);
-        let content = fs::read_to_string(&abs_path)?;
+        let content = parser::read_file_to_string(&abs_path)?;
         let mut parsed = parser::parse_note(&content)?;
 
         parsed.frontmatter.title = new_title.to_string();
@@ -525,13 +525,76 @@ impl NoteService {
         let mut seen_paths = std::collections::HashSet::new();
         self.scan_directory_incremental(&self.vault_path, "", &mut indexed, &mut seen_paths, &existing_notes)?;
 
-        // Remove notes from DB whose files no longer exist on disk
+        // Process notes from DB whose files no longer exist on disk
+        // Collect newly indexed notes for rename matching
+        let new_hashes: std::collections::HashMap<String, String> = indexed
+            .iter()
+            .map(|n| (n.content_hash.clone(), n.path.clone()))
+            .collect();
+
         for note in &existing_notes {
             if !seen_paths.contains(&note.path) {
                 let abs_path = self.vault_path.join(&note.path);
                 if !abs_path.exists() {
-                    self.db.delete_note(&note.id)?;
-                    tracing::info!("Removed stale note from DB: {}", note.path);
+                    // Try to find a renamed match by content hash
+                    if let Some(new_path) = new_hashes.get(&note.content_hash) {
+                        // File was renamed - update the path, preserving metadata
+                        self.db.update_note_path(&note.id, new_path, &note.content_hash)?;
+                        tracing::info!(
+                            "Detected file rename: '{}' -> '{}', preserved metadata",
+                            note.path, new_path
+                        );
+                        // Remove the duplicate new entry that was just indexed
+                        if let Some(new_note) = self.db.get_note_by_path(new_path)? {
+                            if new_note.id != note.id {
+                                self.db.delete_note(&new_note.id)?;
+                            }
+                        }
+                    } else {
+                        // No hash match - try to find by title similarity in the same directory
+                        let note_dir = std::path::Path::new(&note.path)
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let note_title = &note.title;
+
+                        let mut matched_path: Option<String> = None;
+                        for (_hash, path) in &new_hashes {
+                            let new_dir = std::path::Path::new(path)
+                                .parent()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            if new_dir == note_dir {
+                                // Same directory - check if this new file's title matches
+                                if let Some(new_meta) = self.db.get_note_by_path(path)? {
+                                    if &new_meta.title == note_title && new_meta.id != note.id {
+                                        matched_path = Some(path.clone());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(new_path) = matched_path {
+                            self.db.update_note_path(&note.id, &new_path, &note.content_hash)?;
+                            tracing::info!(
+                                "Matched by title in same directory: '{}' -> '{}'",
+                                note.path, new_path
+                            );
+                            if let Some(new_note) = self.db.get_note_by_path(&new_path)? {
+                                if new_note.id != note.id {
+                                    self.db.delete_note(&new_note.id)?;
+                                }
+                            }
+                        } else {
+                            // Cannot auto-recover - keep the record but log it
+                            tracing::warn!(
+                                "Note file missing and cannot auto-match: '{}' (id: {})",
+                                note.path, note.id
+                            );
+                            // Do NOT delete - keep for manual recovery
+                        }
+                    }
                 }
             }
         }
@@ -581,7 +644,7 @@ impl NoteService {
 
                 // Check if this file has changed by comparing content hash
                 let current_hash = if ext == "md" {
-                    fs::read_to_string(&path)
+                    parser::read_file_to_string(&path)
                         .ok()
                         .map(|c| parser::content_hash(&c))
                 } else {
@@ -632,7 +695,7 @@ impl NoteService {
         let hash = parser::content_hash(&hash);
 
         // Check if already exists in DB
-        let existing = self.db.list_notes()?.into_iter().find(|n| n.path == relative_path);
+        let existing = self.db.get_note_by_path(relative_path)?;
         let id = existing.map(|n| n.id).unwrap_or_else(|| Uuid::new_v4().to_string());
 
         let title = Path::new(relative_path)
@@ -659,12 +722,12 @@ impl NoteService {
 
     fn index_file(&self, relative_path: &str) -> Result<NoteMeta> {
         let abs_path = self.vault_path.join(relative_path);
-        let content = fs::read_to_string(&abs_path)?;
+        let content = parser::read_file_to_string(&abs_path)?;
         let parsed = parser::parse_note(&content)?;
         let hash = parser::content_hash(&content);
 
-        // Check if file already exists in DB by path
-        let existing = self.db.list_notes()?.into_iter().find(|n| n.path == relative_path);
+        // Direct DB lookup by path instead of loading all notes
+        let existing = self.db.get_note_by_path(relative_path)?;
 
         // Reuse existing ID from frontmatter or database for stability across restarts
         let id = parsed
@@ -843,7 +906,7 @@ impl NoteService {
         for note in notes {
             let abs_path = self.vault_path.join(&note.path);
             if abs_path.exists() {
-                match fs::read_to_string(&abs_path) {
+                match parser::read_file_to_string(&abs_path) {
                     Ok(content) => {
                         let parsed = parser::parse_note(&content)?;
                         notes_with_content.push((note, parsed.body));
@@ -871,7 +934,7 @@ impl NoteService {
             .context("Note not found")?;
 
         let abs_path = self.vault_path.join(&note.path);
-        let content = fs::read_to_string(&abs_path)?;
+        let content = parser::read_file_to_string(&abs_path)?;
         let parsed = parser::parse_note(&content)?;
 
         search_engine.index_note(&note, &parsed.body)?;

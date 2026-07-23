@@ -17,3 +17,4 @@ pulldown-cmark = { workspace = true }
 tracing = { workspace = true }
 tantivy = { workspace = true }
 jieba-rs = "0.7"
+encoding_rs = "0.8"

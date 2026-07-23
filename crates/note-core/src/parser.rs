@@ -39,9 +39,37 @@ pub fn parse_note(content: &str) -> Result<ParsedNote> {
     })
 }
 
+/// Strip UTF-8 BOM (\u{FEFF}) from the beginning of content.
+/// Windows Notepad and some editors add this prefix when saving UTF-8 files.
+fn strip_bom(s: &str) -> &str {
+    s.strip_prefix('\u{FEFF}').unwrap_or(s)
+}
+
+/// Read file bytes and convert to UTF-8 string, handling BOM and non-UTF-8 encodings.
+/// Falls back to GBK/GB2312 decoding for Chinese Windows environments.
+pub fn read_file_to_string(path: &std::path::Path) -> anyhow::Result<String> {
+    let bytes = std::fs::read(path)
+        .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path.display(), e))?;
+
+    // Try UTF-8 first (with or without BOM)
+    if let Ok(s) = std::str::from_utf8(&bytes) {
+        return Ok(s.to_string());
+    }
+
+    // Not valid UTF-8 - try GBK/GB2312 (common on Chinese Windows)
+    // Use encoding_rs which is already available as a transitive dependency
+    let (decoded, _, had_errors) = encoding_rs::GBK.decode(&bytes);
+    if !had_errors {
+        return Ok(decoded.into_owned());
+    }
+
+    // Last resort: lossy UTF-8 decode (replaces invalid bytes with U+FFFD)
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Extract YAML frontmatter from markdown content
 fn extract_frontmatter(content: &str) -> (Frontmatter, &str) {
-    let trimmed = content.trim_start();
+    let trimmed = strip_bom(content).trim_start();
 
     if !trimmed.starts_with("---") {
         return (Frontmatter::default(), content);

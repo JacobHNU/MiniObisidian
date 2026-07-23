@@ -22,6 +22,7 @@ interface SidebarProps {
   onMoveNote: (noteId: string, destPath: string) => void
   onClose: () => void
   onSwitchVault: () => void
+  onRescan?: () => void
 }
 
 interface FolderNode {
@@ -59,6 +60,7 @@ export default function Sidebar({
   onMoveNote,
   onClose,
   onSwitchVault,
+  onRescan,
 }: SidebarProps) {
   const { t } = useI18n()
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['inbox', 'daily']))
@@ -498,6 +500,14 @@ export default function Sidebar({
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6M12 18v-6M9 15h6" />
             </svg>
           </button>
+          {onRescan && (
+            <button onClick={onRescan} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-blue" title={t('sidebar.refreshNotes')}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
+              </svg>
+            </button>
+          )}
           <button onClick={onClose} className="p-1 rounded hover:bg-muted text-text-secondary hover:text-text-primary" title={t('sidebar.closeSidebar')}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M11 19l-7-7 7-7M18 19l-7-7 7-7" />

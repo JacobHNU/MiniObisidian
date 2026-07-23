@@ -90,6 +90,9 @@ export const moveNote = (noteId: string, targetFolder: string) =>
 export const scanVault = () =>
   invoke<NoteMeta[]>('scan_vault')
 
+export const rescanVault = () =>
+  invoke<number>('rescan_vault')
+
 // Graph
 export const getGraphData = () =>
   invoke<GraphData>('get_graph_data')
@@ -360,4 +363,8 @@ export async function getNoteIcon(noteId: string): Promise<string | null> {
 
 export async function writeExportFile(path: string, data: number[]): Promise<void> {
   return invoke('write_export_file', { path, data })
+}
+
+export async function relocateNote(noteId: string, newFilePath: string): Promise<NoteMeta> {
+  return invoke('relocate_note', { noteId, newFilePath })
 }

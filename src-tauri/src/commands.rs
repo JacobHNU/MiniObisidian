@@ -275,6 +275,31 @@ pub fn scan_vault(
     svc.scan_vault().map_err(|e| e.to_string())
 }
 
+/// Rescan vault: scan files + rebuild search index
+/// Returns the number of notes found after scan
+#[tauri::command]
+pub fn rescan_vault(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = guard.as_ref().ok_or("Vault not initialized")?;
+
+    // Scan filesystem and update DB
+    let notes = svc.scan_vault().map_err(|e| e.to_string())?;
+    let count = notes.len();
+
+    // Rebuild search index
+    let search_engine = state.search_engine.lock().map_err(|e| e.to_string())?;
+    if let Some(engine) = search_engine.as_ref() {
+        if let Err(e) = svc.index_all_notes_for_search(engine) {
+            tracing::warn!("Failed to rebuild search index during rescan: {}", e);
+        }
+    }
+
+    tracing::info!("Rescan vault complete: {} notes", count);
+    Ok(count)
+}
+
 /// Get graph data for knowledge graph visualization
 #[tauri::command]
 pub fn get_graph_data(
@@ -369,6 +394,52 @@ pub fn write_export_file(path: String, data: Vec<u8>) -> Result<(), String> {
     std::fs::write(&path, &data).map_err(|e| format!("Failed to write file '{}': {}", path, e))
 }
 
+/// Relocate a note to a new file path (for manual recovery when file was moved/renamed externally)
+#[tauri::command]
+pub fn relocate_note(
+    state: State<'_, AppState>,
+    note_id: String,
+    new_file_path: String,
+) -> Result<NoteMeta, String> {
+    let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
+
+    let abs_path = std::path::Path::new(svc.vault_path()).join(&new_file_path);
+    if !abs_path.exists() {
+        return Err(format!("File does not exist: {}", new_file_path));
+    }
+
+    // Read the new file to compute hash
+    let content = note_core::parser::read_file_to_string(&abs_path)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let hash = note_core::parser::content_hash(&content);
+
+    // Update the path in database
+    let db = svc.db();
+    db.update_note_path(&note_id, &new_file_path, &hash)
+        .map_err(|e| e.to_string())?;
+
+    let meta = db.get_note(&note_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Note not found after update")?;
+
+    Ok(meta)
+}
+
+/// Get all notes (including those with missing files) for recovery purposes
+#[tauri::command]
+pub fn get_all_notes_including_missing(
+    state: State<'_, AppState>,
+) -> Result<Vec<NoteMeta>, String> {
+    let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+    let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
+
+    let notes = svc.db().list_notes().map_err(|e| e.to_string())?;
+
+    // Mark which notes have missing files
+    Ok(notes)
+}
+
 // ──────────────────────────────────────────────
 // Tag Commands
 // ──────────────────────────────────────────────
@@ -441,7 +512,7 @@ pub fn add_tag_to_note(state: State<'_, AppState>, note_id: String, tag_name: St
         // Read the raw content, update frontmatter tags, and save
         let rel_path = &note.path;
         let abs_path = svc.vault_path().join(rel_path);
-        let raw = std::fs::read_to_string(&abs_path).map_err(|e| e.to_string())?;
+        let raw = note_core::parser::read_file_to_string(&abs_path).map_err(|e| e.to_string())?;
         let parsed = note_core::parser::parse_note(&raw).map_err(|e| e.to_string())?;
         let mut fm = parsed.frontmatter.clone();
         fm.tags = tags;
@@ -464,7 +535,7 @@ pub fn remove_tag_from_note(state: State<'_, AppState>, note_id: String, tag_nam
         tags.remove(pos);
         let rel_path = &note.path;
         let abs_path = svc.vault_path().join(rel_path);
-        let raw = std::fs::read_to_string(&abs_path).map_err(|e| e.to_string())?;
+        let raw = note_core::parser::read_file_to_string(&abs_path).map_err(|e| e.to_string())?;
         let parsed = note_core::parser::parse_note(&raw).map_err(|e| e.to_string())?;
         let mut fm = parsed.frontmatter.clone();
         fm.tags = tags;
