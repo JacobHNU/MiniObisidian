@@ -151,6 +151,7 @@ textarea {
   font-weight: 600;
   margin: 0.6em 0 0.3em;
   color: var(--accent);
+  padding-left: 1.5em;
 }
 
 .markdown-preview h4 {
@@ -158,6 +159,7 @@ textarea {
   font-weight: 600;
   margin: 0.5em 0 0.3em;
   color: var(--accent);
+  padding-left: 1.5em;
 }
 
 .markdown-preview h5 {
@@ -165,6 +167,7 @@ textarea {
   font-weight: 600;
   margin: 0.5em 0 0.25em;
   color: var(--accent);
+  padding-left: 1.5em;
 }
 
 .markdown-preview h6 {
@@ -172,6 +175,7 @@ textarea {
   font-weight: 600;
   margin: 0.5em 0 0.25em;
   color: var(--accent);
+  padding-left: 1.5em;
 }
 
 .markdown-preview p {

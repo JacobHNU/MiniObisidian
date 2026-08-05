@@ -3,7 +3,8 @@ use note_core::{service::FileInfo, service::GraphData, NoteService};
 use serde::{Deserialize, Serialize};
 use storage::schema::{NoteMeta, Tag, FolderMeta};
 use storage::Database;
-use sync_engine::SyncAdapter;
+use sync_engine::{SyncAdapter, SyncEngine, ChangeDetector};
+use sync_engine::baidu_adapter::{BaiduAdapter, BaiduToken};
 use tauri::{AppHandle, Emitter, State};
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -424,20 +425,6 @@ pub fn relocate_note(
         .ok_or("Note not found after update")?;
 
     Ok(meta)
-}
-
-/// Get all notes (including those with missing files) for recovery purposes
-#[tauri::command]
-pub fn get_all_notes_including_missing(
-    state: State<'_, AppState>,
-) -> Result<Vec<NoteMeta>, String> {
-    let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
-    let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
-
-    let notes = svc.db().list_notes().map_err(|e| e.to_string())?;
-
-    // Mark which notes have missing files
-    Ok(notes)
 }
 
 // ──────────────────────────────────────────────
@@ -1186,6 +1173,7 @@ fn get_sync_states_map(db: &Database) -> std::collections::HashMap<String, sync_
                     remote_hash: s.remote_hash,
                     sync_status: s.sync_status,
                     version: s.version,
+                    last_synced_mtime: s.last_synced_mtime,
                 },
             )
         })
@@ -1203,6 +1191,7 @@ fn persist_state_updates(db: &Database, updates: &[sync_engine::SyncStateUpdate]
                 remote_hash: update.remote_hash.clone(),
                 sync_status: update.sync_status.clone(),
                 last_synced: update.last_synced,
+                last_synced_mtime: update.last_synced_mtime,
                 remote_fid: update.remote_fid.clone(),
                 version: update.version,
             });
@@ -1512,4 +1501,280 @@ pub fn report_error(
     );
 
     Ok(())
+}
+
+// ──────────────────────────────────────────────
+// Baidu Pan (百度网盘) Commands
+// ──────────────────────────────────────────────
+
+/// Initialize Baidu adapter with API keys
+#[tauri::command]
+pub async fn baidu_init_adapter(
+    state: State<'_, AppState>,
+    app_key: String,
+    secret_key: String,
+) -> Result<String, String> {
+    let mut guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+
+    let adapter = BaiduAdapter::new(app_key.clone(), secret_key.clone());
+
+    *guard = Some(adapter);
+    tracing::info!("Baidu Pan adapter initialized with app_key: {}...", &app_key[..app_key.len().min(8)]);
+    Ok("Baidu Pan adapter initialized".to_string())
+}
+
+/// Get OAuth2.0 authorization URL
+#[tauri::command]
+pub fn baidu_get_auth_url(
+    state: State<'_, AppState>,
+    redirect_uri: String,
+) -> Result<String, String> {
+    let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+    let adapter = guard.as_ref().ok_or("Baidu adapter not initialized")?;
+    Ok(adapter.get_auth_url(&redirect_uri))
+}
+
+/// Exchange authorization code for access token
+#[tauri::command]
+pub async fn baidu_exchange_code(
+    state: State<'_, AppState>,
+    code: String,
+    redirect_uri: String,
+) -> Result<serde_json::Value, String> {
+    // Clone adapter and drop lock before async work (MutexGuard is not Send)
+    let mut adapter = {
+        let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        guard.as_ref().ok_or("Baidu adapter not initialized")?.clone()
+    };
+
+    let token = adapter.exchange_code(&code, &redirect_uri).await
+        .map_err(|e| format!("OAuth exchange failed: {}", e))?;
+
+    // Persist the updated token back to the state
+    {
+        let mut guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        if let Some(a) = guard.as_mut() {
+            a.set_token(token.clone());
+        }
+    }
+
+    Ok(serde_json::json!({
+        "success": true,
+        "expiresIn": token.expires_in,
+        "createdAt": token.created_at,
+    }))
+}
+
+/// Refresh the access token
+#[tauri::command]
+pub async fn baidu_refresh_token(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    // Clone adapter and drop lock before async work (MutexGuard is not Send)
+    let mut adapter = {
+        let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        guard.as_ref().ok_or("Baidu adapter not initialized")?.clone()
+    };
+
+    let token = adapter.refresh_token().await
+        .map_err(|e| format!("Token refresh failed: {}", e))?;
+
+    // Persist the updated token back to the state
+    {
+        let mut guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        if let Some(a) = guard.as_mut() {
+            a.set_token(token.clone());
+        }
+    }
+
+    Ok(serde_json::json!({
+        "success": true,
+        "expiresIn": token.expires_in,
+        "createdAt": token.created_at,
+    }))
+}
+
+/// Check if Baidu Pan connection is working
+#[tauri::command]
+pub async fn baidu_check_connection(
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    // Clone adapter and drop lock before async work (MutexGuard is not Send)
+    let adapter = {
+        let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        guard.as_ref().ok_or("Baidu adapter not initialized")?.clone()
+    };
+
+    match adapter.get_user_info().await {
+        Ok(info) => {
+            Ok(serde_json::json!({
+                "connected": true,
+                "baiduName": info.baidu_name,
+                "netdiskName": info.netdisk_name,
+                "vipType": info.vip_type,
+                "totalSpace": info.total_space,
+                "usedSpace": info.used_space,
+            }))
+        }
+        Err(e) => {
+            Ok(serde_json::json!({
+                "connected": false,
+                "error": format!("{}", e),
+            }))
+        }
+    }
+}
+
+/// Logout from Baidu Pan (clear token)
+#[tauri::command]
+pub fn baidu_logout(
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let mut guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+    if let Some(adapter) = guard.as_mut() {
+        adapter.clear_token();
+    }
+    *guard = None;
+    Ok("Logged out from Baidu Pan".to_string())
+}
+
+/// Run sync with Baidu Pan
+#[tauri::command]
+pub async fn baidu_run_sync(
+    state: State<'_, AppState>,
+    vault_path: String,
+    config_json: String,
+) -> Result<serde_json::Value, String> {
+    let config: sync_engine::sync_config::SyncConfig = serde_json::from_str(&config_json)
+        .map_err(|e| format!("Invalid sync config: {}", e))?;
+
+    let vault = PathBuf::from(&vault_path);
+
+    // Get sync states from the database via note_service
+    let sync_states = {
+        let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
+        get_sync_states_map(svc.db())
+    };
+
+    // Clone the adapter so we can drop the lock before async work
+    let adapter = {
+        let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        let a = guard.as_ref().ok_or("Baidu adapter not initialized")?;
+        a.clone()
+    };
+
+    let strategy = sync_engine::ConflictStrategy::from_str(&config.conflict_strategy);
+    let engine = SyncEngine::new(vault, Box::new(adapter), strategy, config);
+    let result = engine.sync(&sync_states).await
+        .map_err(|e| format!("Sync failed: {}", e))?;
+
+    // Persist state updates
+    {
+        let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
+        persist_state_updates(svc.db(), &result.state_updates);
+    }
+
+    Ok(serde_json::json!({
+        "uploaded": result.uploaded,
+        "downloaded": result.downloaded,
+        "deleted": result.deleted,
+        "conflicts": result.conflicts,
+        "errors": result.errors,
+        "timestamp": result.completed_at.to_rfc3339(),
+    }))
+}
+
+/// Get sync changes (dry run) with Baidu Pan
+#[tauri::command]
+pub async fn baidu_get_changes(
+    state: State<'_, AppState>,
+    vault_path: String,
+    config_json: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    let config: sync_engine::sync_config::SyncConfig = serde_json::from_str(&config_json)
+        .map_err(|e| format!("Invalid sync config: {}", e))?;
+
+    let vault = PathBuf::from(&vault_path);
+
+    let local_files = ChangeDetector::scan_local(&vault, &config)
+        .map_err(|e| format!("Scan local failed: {}", e))?;
+
+    // Get sync states from the database
+    let sync_states = {
+        let svc_guard = state.note_service.lock().map_err(|e| e.to_string())?;
+        let svc = svc_guard.as_ref().ok_or("Vault not initialized")?;
+        get_sync_states_map(svc.db())
+    };
+
+    // Clone the adapter so we can drop the lock before async work
+    let adapter = {
+        let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+        let a = guard.as_ref().ok_or("Baidu adapter not initialized")?;
+        a.clone()
+    };
+
+    let remote_metas = adapter.list_remote_files().await
+        .map_err(|e| format!("List remote failed: {}", e))?;
+    let remote_files: std::collections::HashMap<String, sync_engine::FileMeta> = remote_metas
+        .into_iter()
+        .map(|m| (m.relative_path.clone(), m))
+        .collect();
+
+    let changes = ChangeDetector::detect_changes_with_state(&local_files, &remote_files, &sync_states);
+
+    let result: Vec<serde_json::Value> = changes.iter().map(|c| {
+        serde_json::json!({
+            "path": c.relative_path,
+            "changeType": match c.change_type {
+                sync_engine::ChangeType::Added => "Added",
+                sync_engine::ChangeType::Modified => "Modified",
+                sync_engine::ChangeType::Deleted => "Deleted",
+                sync_engine::ChangeType::Download => "Download",
+            },
+            "direction": match c.direction {
+                sync_engine::ChangeDirection::Upload => "Upload",
+                sync_engine::ChangeDirection::Download => "Download",
+                sync_engine::ChangeDirection::DeleteRemote => "DeleteRemote",
+                sync_engine::ChangeDirection::Unresolved => "Unresolved",
+            },
+            "local": c.local_meta.is_some(),
+            "remote": c.remote_meta.is_some(),
+        })
+    }).collect();
+
+    Ok(result)
+}
+
+/// Set Baidu token (restore from persistent storage)
+#[tauri::command]
+pub fn baidu_set_token(
+    state: State<'_, AppState>,
+    token_json: String,
+) -> Result<String, String> {
+    let token: BaiduToken = serde_json::from_str(&token_json)
+        .map_err(|e| format!("Invalid token JSON: {}", e))?;
+
+    let mut guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+    if let Some(adapter) = guard.as_mut() {
+        adapter.set_token(token);
+        return Ok("Token restored".to_string());
+    }
+    Err("Baidu adapter not initialized".to_string())
+}
+
+/// Get current Baidu token (for persistence)
+#[tauri::command]
+pub fn baidu_get_token(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let guard = state.baidu_adapter.lock().map_err(|e| e.to_string())?;
+    if let Some(adapter) = guard.as_ref() {
+        if let Some(token) = adapter.get_token() {
+            let json = serde_json::to_string(token).map_err(|e| e.to_string())?;
+            return Ok(Some(json));
+        }
+    }
+    Ok(None)
 }

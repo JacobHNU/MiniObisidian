@@ -76,13 +76,15 @@ impl SyncAdapter for LocalSyncAdapter {
         Ok(std::fs::read(path)?)
     }
 
-    async fn upload_file(&self, relative_path: &str, content: &[u8]) -> anyhow::Result<()> {
-        let path = self.target_path(relative_path);
-        if let Some(parent) = path.parent() {
+    async fn upload_file(&self, relative_path: &str, content: &[u8]) -> anyhow::Result<Option<i64>> {
+        let dest = self.target_path(relative_path);
+        if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, content)?;
-        Ok(())
+        std::fs::write(&dest, content)?;
+        // Local folder adapter has no cloud server_mtime concept → None.
+        // The engine falls back to its own clock for the baseline.
+        Ok(None)
     }
 
     async fn delete_remote_file(&self, relative_path: &str) -> anyhow::Result<()> {

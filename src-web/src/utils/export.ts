@@ -405,10 +405,10 @@ export function markdownToHtml(markdown: string): string {
   html = html.replace(/^---\n[\s\S]*?\n---\n?/, '')
 
   // Headings
-  html = html.replace(/^######\s+(.+)$/gm, '<h6>$1</h6>')
-  html = html.replace(/^#####\s+(.+)$/gm, '<h5>$1</h5>')
-  html = html.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>')
-  html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
+  html = html.replace(/^######\s+(.+)$/gm, '<h6 style="padding-left:1.5em">$1</h6>')
+  html = html.replace(/^#####\s+(.+)$/gm, '<h5 style="padding-left:1.5em">$1</h5>')
+  html = html.replace(/^####\s+(.+)$/gm, '<h4 style="padding-left:1.5em">$1</h4>')
+  html = html.replace(/^###\s+(.+)$/gm, '<h3 style="padding-left:1.5em">$1</h3>')
   html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
   html = html.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
 
@@ -437,12 +437,49 @@ export function markdownToHtml(markdown: string): string {
   // Images
   html = html.replace(/!\[(.+?)\]\((.+?)\)/g, '<img alt="$1" src="$2">')
 
-  // Unordered lists
-  html = html.replace(/^[-*]\s+(.+)$/gm, '<li>$1</li>')
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+  // Unordered lists (with nesting support)
+  html = html.replace(/^([ \t]*)([-*])\s+(.+)$/gm, (_m, indent, _marker, text) => {
+    const level = Math.floor(indent.length / 2)
+    return `<li data-level="${level}">${text}</li>`
+  })
+  html = html.replace(/((?:<li data-level="\d+">.*<\/li>\n?)+)/g, (match) => {
+    const items = match.match(/<li data-level="(\d+)">(.*?)<\/li>/g) || []
+    let result = ''
+    let prevLevel = -1
+    for (const item of items) {
+      const levelMatch = item.match(/<li data-level="(\d+)">(.*?)<\/li>/)
+      if (!levelMatch) continue
+      const level = parseInt(levelMatch[1])
+      const text = levelMatch[2]
+      while (level > prevLevel) { result += '<ul>'; prevLevel++ }
+      while (level < prevLevel) { result += '</ul>'; prevLevel-- }
+      result += `<li>${text}</li>`
+    }
+    while (prevLevel >= 0) { result += '</ul>'; prevLevel-- }
+    return result
+  })
 
-  // Ordered lists
-  html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>')
+  // Ordered lists (with nesting support)
+  html = html.replace(/^([ \t]*)(\d+)\.\s+(.+)$/gm, (_m, indent, _num, text) => {
+    const level = Math.floor(indent.length / 2)
+    return `<oli data-level="${level}">${text}</oli>`
+  })
+  html = html.replace(/((?:<oli data-level="\d+">.*<\/oli>\n?)+)/g, (match) => {
+    const items = match.match(/<oli data-level="(\d+)">(.*?)<\/oli>/g) || []
+    let result = ''
+    let prevLevel = -1
+    for (const item of items) {
+      const levelMatch = item.match(/<oli data-level="(\d+)">(.*?)<\/oli>/)
+      if (!levelMatch) continue
+      const level = parseInt(levelMatch[1])
+      const text = levelMatch[2]
+      while (level > prevLevel) { result += '<ol>'; prevLevel++ }
+      while (level < prevLevel) { result += '</ol>'; prevLevel-- }
+      result += `<li>${text}</li>`
+    }
+    while (prevLevel >= 0) { result += '</ol>'; prevLevel-- }
+    return result
+  })
 
   // Tables (basic)
   html = html.replace(/^\|(.+)\|$/gm, (_m, content) => {

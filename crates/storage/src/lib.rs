@@ -40,6 +40,17 @@ impl Database {
         conn.execute_batch(schema::CREATE_TABLES)?;
         // Migration: remove FK constraint on links.target_id
         conn.execute_batch(schema::MIGRATE_LINKS_NO_TARGET_FK)?;
+        // Migration: add mtime baseline column to sync_state (idempotent-safe:
+        // CREATE TABLE IF NOT EXISTS above defines it for fresh DBs; ALTER only
+        // succeeds on pre-existing DBs missing the column).
+        let has_col: bool = conn
+            .prepare("SELECT COUNT(*) FROM pragma_table_info('sync_state') WHERE name='last_synced_mtime'")?
+            .query_row([], |r| r.get::<_, i64>(0))
+            .map(|c| c > 0)
+            .unwrap_or(false);
+        if !has_col {
+            conn.execute_batch(schema::MIGRATE_ADD_SYNC_STATE_MTIME)?;
+        }
         Ok(())
     }
 
@@ -444,7 +455,7 @@ impl Database {
         let conn = self.lock_conn()?;
         let result = conn
             .prepare(
-                "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+                "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, last_synced_mtime, remote_fid, version
                  FROM sync_state WHERE file_path = ?1",
             )?
             .query_row(rusqlite::params![file_path], |row| {
@@ -454,8 +465,9 @@ impl Database {
                     remote_hash: row.get(2)?,
                     sync_status: row.get(3)?,
                     last_synced: row.get(4)?,
-                    remote_fid: row.get(5)?,
-                    version: row.get(6)?,
+                    last_synced_mtime: row.get(5)?,
+                    remote_fid: row.get(6)?,
+                    version: row.get(7)?,
                 })
             })
             .optional()?;
@@ -465,7 +477,7 @@ impl Database {
     pub fn get_all_sync_states(&self) -> Result<Vec<schema::SyncState>> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, last_synced_mtime, remote_fid, version
              FROM sync_state",
         )?;
         let states = stmt
@@ -476,8 +488,9 @@ impl Database {
                     remote_hash: row.get(2)?,
                     sync_status: row.get(3)?,
                     last_synced: row.get(4)?,
-                    remote_fid: row.get(5)?,
-                    version: row.get(6)?,
+                    last_synced_mtime: row.get(5)?,
+                    remote_fid: row.get(6)?,
+                    version: row.get(7)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -487,13 +500,14 @@ impl Database {
     pub fn upsert_sync_state(&self, state: &schema::SyncState) -> Result<()> {
         let conn = self.lock_conn()?;
         conn.execute(
-            "INSERT INTO sync_state (file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO sync_state (file_path, local_hash, remote_hash, sync_status, last_synced, last_synced_mtime, remote_fid, version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(file_path) DO UPDATE SET
                local_hash = excluded.local_hash,
                remote_hash = excluded.remote_hash,
                sync_status = excluded.sync_status,
                last_synced = excluded.last_synced,
+               last_synced_mtime = excluded.last_synced_mtime,
                remote_fid = excluded.remote_fid,
                version = excluded.version",
             rusqlite::params![
@@ -502,6 +516,7 @@ impl Database {
                 state.remote_hash,
                 state.sync_status,
                 state.last_synced,
+                state.last_synced_mtime,
                 state.remote_fid,
                 state.version,
             ],
@@ -518,7 +533,7 @@ impl Database {
     pub fn get_pending_sync_states(&self) -> Result<Vec<schema::SyncState>> {
         let conn = self.lock_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, remote_fid, version
+            "SELECT file_path, local_hash, remote_hash, sync_status, last_synced, last_synced_mtime, remote_fid, version
              FROM sync_state WHERE sync_status != 'synced'",
         )?;
         let states = stmt
@@ -529,8 +544,9 @@ impl Database {
                     remote_hash: row.get(2)?,
                     sync_status: row.get(3)?,
                     last_synced: row.get(4)?,
-                    remote_fid: row.get(5)?,
-                    version: row.get(6)?,
+                    last_synced_mtime: row.get(5)?,
+                    remote_fid: row.get(6)?,
+                    version: row.get(7)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;

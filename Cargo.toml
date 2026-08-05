@@ -22,3 +22,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 pulldown-cmark = "0.11"
 tantivy = "0.22"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "multipart"], default-features = false }

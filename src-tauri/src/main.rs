@@ -7,6 +7,7 @@ use std::sync::Mutex;
 pub struct AppState {
     pub note_service: Mutex<Option<note_core::NoteService>>,
     pub search_engine: Mutex<Option<note_core::SearchEngine>>,
+    pub baidu_adapter: Mutex<Option<sync_engine::baidu_adapter::BaiduAdapter>>,
 }
 
 fn main() {
@@ -40,6 +41,7 @@ fn main() {
         .manage(AppState {
             note_service: Mutex::new(None),
             search_engine: Mutex::new(None),
+            baidu_adapter: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             commands::init_vault,
@@ -78,6 +80,16 @@ fn main() {
             commands::update_search_index_for_note,
             commands::get_backlinks,
             commands::report_error,
+            commands::baidu_get_auth_url,
+            commands::baidu_exchange_code,
+            commands::baidu_refresh_token,
+            commands::baidu_check_connection,
+            commands::baidu_logout,
+            commands::baidu_init_adapter,
+            commands::baidu_run_sync,
+            commands::baidu_get_changes,
+            commands::baidu_set_token,
+            commands::baidu_get_token,
             commands::write_export_file,
             commands::relocate_note,
             commands::create_tag,

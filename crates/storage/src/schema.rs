@@ -20,13 +20,14 @@ CREATE TABLE IF NOT EXISTS links (
 );
 
 CREATE TABLE IF NOT EXISTS sync_state (
-    file_path     TEXT PRIMARY KEY,
-    local_hash    TEXT NOT NULL,
-    remote_hash   TEXT,
-    sync_status   TEXT NOT NULL DEFAULT 'synced',
-    last_synced   INTEGER NOT NULL DEFAULT 0,
-    remote_fid    TEXT,
-    version       INTEGER DEFAULT 1
+    file_path          TEXT PRIMARY KEY,
+    local_hash         TEXT NOT NULL,
+    remote_hash        TEXT,
+    sync_status        TEXT NOT NULL DEFAULT 'synced',
+    last_synced        INTEGER NOT NULL DEFAULT 0,
+    last_synced_mtime  INTEGER NOT NULL DEFAULT 0,
+    remote_fid         TEXT,
+    version            INTEGER DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS config (
@@ -72,6 +73,12 @@ CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id);
 "#;
 
+/// Migration: add mtime baseline column to sync_state
+/// (safe for both fresh and existing databases)
+pub const MIGRATE_ADD_SYNC_STATE_MTIME: &str = r#"
+ALTER TABLE sync_state ADD COLUMN last_synced_mtime INTEGER NOT NULL DEFAULT 0;
+"#;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteMeta {
     pub id: String,
@@ -97,6 +104,9 @@ pub struct SyncState {
     pub remote_hash: Option<String>,
     pub sync_status: String,
     pub last_synced: i64,
+    /// Baseline cloud server_mtime from the last successful sync.
+    /// Used for mtime-based change detection (avoids clock skew between devices).
+    pub last_synced_mtime: i64,
     pub remote_fid: Option<String>,
     pub version: i32,
 }

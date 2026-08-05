@@ -216,7 +216,8 @@ export interface SyncResult {
 
 export interface FileChange {
   relativePath: string
-  changeType: 'Added' | 'Modified' | 'Deleted'
+  changeType: 'Added' | 'Modified' | 'Deleted' | 'Download'
+  direction: 'Upload' | 'Download' | 'DeleteRemote' | 'Unresolved'
   localMeta: FileMeta | null
   remoteMeta: FileMeta | null
 }
@@ -249,6 +250,63 @@ export const fullPull = () =>
 
 export const getSyncStatus = () =>
   invoke<{ syncTarget: string; autoSyncEnabled: boolean; autoSyncInterval: number; pendingChanges: number; lastSync: string | null }>('get_sync_status')
+
+// ── Baidu Pan (百度网盘) ──────────────────────────────────────────
+
+export interface BaiduConnectionInfo {
+  connected: boolean
+  baiduName?: string
+  netdiskName?: string
+  vipType?: number
+  totalSpace?: number
+  usedSpace?: number
+  error?: string
+}
+
+export interface BaiduOAuthResult {
+  success: boolean
+  expiresIn?: number
+  createdAt?: number
+}
+
+export const baiduInitAdapter = (appKey: string, secretKey: string) =>
+  invoke<string>('baidu_init_adapter', { appKey, secretKey })
+
+export const baiduGetAuthUrl = (redirectUri: string) =>
+  invoke<string>('baidu_get_auth_url', { redirectUri })
+
+export const baiduExchangeCode = (code: string, redirectUri: string) =>
+  invoke<BaiduOAuthResult>('baidu_exchange_code', { code, redirectUri })
+
+export const baiduRefreshToken = () =>
+  invoke<BaiduOAuthResult>('baidu_refresh_token')
+
+export const baiduCheckConnection = () =>
+  invoke<BaiduConnectionInfo>('baidu_check_connection')
+
+export const baiduLogout = () =>
+  invoke<string>('baidu_logout')
+
+export interface BaiduSyncResult {
+  uploaded: number
+  downloaded: number
+  deleted: number
+  conflicts: number
+  errors: { relativePath: string; message: string }[]
+  timestamp: string
+}
+
+export const baiduRunSync = (vaultPath: string, configJson: string) =>
+  invoke<BaiduSyncResult>('baidu_run_sync', { vaultPath, configJson })
+
+export const baiduGetChanges = (vaultPath: string, configJson: string) =>
+  invoke<FileChange[]>('baidu_get_changes', { vaultPath, configJson })
+
+export const baiduSetToken = (tokenJson: string) =>
+  invoke<string>('baidu_set_token', { tokenJson })
+
+export const baiduGetToken = () =>
+  invoke<string | null>('baidu_get_token')
 
 // Search
 export interface SearchResult {

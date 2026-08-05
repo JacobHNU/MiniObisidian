@@ -25,7 +25,6 @@ pub struct SearchResult {
 pub struct SearchEngine {
     index: Index,
     reader: IndexReader,
-    schema: Schema,
     title_field: Field,
     content_field: Field,
     id_field: Field,
@@ -46,7 +45,9 @@ impl SearchEngine {
         let schema = schema_builder.build();
 
         // Open or create index
-        let index = if index_path.exists() {
+        // Check for tantivy index files (meta.json), not just directory existence
+        let has_index = index_path.join("meta.json").exists();
+        let index = if has_index {
             Index::open_in_dir(index_path)?
         } else {
             std::fs::create_dir_all(index_path)?;
@@ -61,7 +62,6 @@ impl SearchEngine {
         Ok(Self {
             index,
             reader,
-            schema,
             title_field,
             content_field,
             id_field,
@@ -71,7 +71,7 @@ impl SearchEngine {
 
     /// Index a single note (lightweight writer for single-doc updates)
     pub fn index_note(&self, note: &NoteMeta, content: &str) -> Result<()> {
-        let mut writer: IndexWriter = self.index.writer(5_000_000)?; // 5MB heap for single updates
+        let mut writer: IndexWriter = self.index.writer(15_000_000)?; // 15MB heap (tantivy minimum)
 
         // Remove existing document if any
         writer.delete_term(tantivy::Term::from_field_text(self.id_field, &note.id));
@@ -90,6 +90,8 @@ impl SearchEngine {
         ))?;
 
         writer.commit()?;
+        // Force reader to reload so newly indexed docs are immediately searchable
+        self.reader.reload()?;
         Ok(())
     }
 
@@ -117,6 +119,7 @@ impl SearchEngine {
         }
 
         writer.commit()?;
+        self.reader.reload()?;
         info!("Indexed {} notes", notes.len());
         Ok(())
     }
